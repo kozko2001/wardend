@@ -1,0 +1,128 @@
+---
+name: Build and Release
+
+"on":
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  release:
+    types: [published]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Run tests with coverage
+        run: go test -coverprofile=coverage.out ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.out
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin, freebsd]
+        goarch: [amd64, arm64]
+        exclude:
+          # Windows on ARM64 is not commonly used
+          - goos: windows
+            goarch: arm64
+          # FreeBSD on ARM64 is not commonly used
+          - goos: freebsd
+            goarch: arm64
+        include:
+          # Add 386 for Linux and Windows for older systems
+          - goos: linux
+            goarch: "386"
+          - goos: windows
+            goarch: "386"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          # Set binary extension for Windows
+          if [ "$GOOS" = "windows" ]; then
+            BINARY_NAME="wardend-$GOOS-$GOARCH.exe"
+          else
+            BINARY_NAME="wardend-$GOOS-$GOARCH"
+          fi
+
+          # Build with optimizations and version info
+          go build -ldflags="-w -s" -o "$BINARY_NAME" .
+
+          # Create checksums
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$BINARY_NAME" > "$BINARY_NAME.sha256"
+          else
+            shasum -a 256 "$BINARY_NAME" > "$BINARY_NAME.sha256"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: wardend-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            wardend-*
+            *.sha256
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'release'
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            */wardend-*
+            */*.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
