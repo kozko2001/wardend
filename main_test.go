@@ -13,8 +13,8 @@ func TestArrayFlags(t *testing.T) {
 		t.Errorf("Expected empty string for uninitialized arrayFlags, got '%s'", af.String())
 	}
 	
-	af.Set("first")
-	af.Set("second")
+	_ = af.Set("first")
+	_ = af.Set("second")
 	
 	result := af.String()
 	if result != "first, second" {
