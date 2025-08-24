@@ -1,0 +1,16 @@
+processes:
+  - name: failing-service
+    command: "echo 'Starting service'; sleep 2; exit 1"
+    restart_policy: on-failure
+    start_retries: 3
+    startup_time: "1s"
+    max_restarts: 2
+    restart_delay: "1s"
+    
+  - name: stable-service
+    command: "echo 'Stable service running'; sleep 30; echo 'Stable service completed'"
+    restart_policy: never
+
+log_format: text
+log_level: info
+shutdown_timeout: "5s"

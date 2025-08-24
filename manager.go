@@ -22,29 +22,32 @@ const (
 )
 
 type Process struct {
-	Config           ProcessConfig
-	State            ProcessState
-	Cmd              *exec.Cmd
-	StartupAttempts  int       // Failures during startup phase
-	RuntimeRestarts  int       // Restarts after successful startup
-	LastStart        time.Time
-	StartupComplete  bool      // Has process run long enough to be considered started
-	mu               sync.RWMutex
+	Config          ProcessConfig
+	State           ProcessState
+	Cmd             *exec.Cmd
+	StartupAttempts int // Failures during startup phase
+	RuntimeRestarts int // Restarts after successful startup
+	LastStart       time.Time
+	StartupComplete bool // Has process run long enough to be considered started
+	mu              sync.RWMutex
 }
 
 type Manager struct {
-	config    *Config
-	processes map[string]*Process
-	logger    *slog.Logger
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	mu        sync.RWMutex
+	config        *Config
+	processes     map[string]*Process
+	logger        *slog.Logger
+	logManager    *LogManager
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	mu            sync.RWMutex
+	healthChecker *HealthChecker
+	httpServer    *HTTPServer
 }
 
 func NewManager(config *Config) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: getLogLevel(config.LogLevel),
 	}))
@@ -54,13 +57,23 @@ func NewManager(config *Config) *Manager {
 		}))
 	}
 
-	return &Manager{
-		config:    config,
-		processes: make(map[string]*Process),
-		logger:    logger,
-		ctx:       ctx,
-		cancel:    cancel,
+	manager := &Manager{
+		config:     config,
+		processes:  make(map[string]*Process),
+		logger:     logger,
+		logManager: NewLogManager(config.LogDir, logger),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
+
+	manager.healthChecker = NewHealthChecker(manager)
+
+	// Initialize HTTP server if port is configured
+	if config.HTTPPort > 0 {
+		manager.httpServer = NewHTTPServer(manager, config.HTTPPort)
+	}
+
+	return manager
 }
 
 func getLogLevel(level LogLevel) slog.Level {
@@ -106,9 +119,19 @@ func (m *Manager) StartAll() error {
 		if err := m.StartProcess(processName); err != nil {
 			return fmt.Errorf("failed to start process %s: %v", processName, err)
 		}
-		
+
 		if err := m.waitForDependencies(processName); err != nil {
 			return fmt.Errorf("dependency check failed for process %s: %v", processName, err)
+		}
+	}
+
+	// Start health checker after all processes are started
+	m.healthChecker.Start()
+
+	// Start HTTP server if configured
+	if m.httpServer != nil {
+		if err := m.httpServer.Start(); err != nil {
+			return fmt.Errorf("failed to start HTTP server: %v", err)
 		}
 	}
 
@@ -131,14 +154,45 @@ func (m *Manager) StartProcess(name string) error {
 		return nil
 	}
 
-	m.logger.Info("starting process", "name", name, "command", process.Config.Command)
-	
+	processLogger := m.logger.With(
+		"process", name,
+		"command", process.Config.Command,
+		"restart_policy", process.Config.RestartPolicy,
+		"startup_attempts", process.StartupAttempts,
+		"runtime_restarts", process.RuntimeRestarts,
+	)
+
+	processLogger.Info("starting process")
+
 	process.State = StateStarting
 	process.LastStart = time.Now()
 
 	cmd := exec.CommandContext(m.ctx, "sh", "-c", process.Config.Command)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// Set up per-process logging
+	fileLogger, err := m.logManager.GetProcessLogger(name)
+	if err != nil {
+		process.State = StateFailed
+		return fmt.Errorf("failed to get process logger: %v", err)
+	}
+
+	// Create writers that log to both process log and stdout/stderr
+	if m.config.LogDir == "" {
+		// No log directory, just use stdout/stderr with process prefixes
+		cmd.Stdout = NewProcessWriter(name, os.Stdout, false)
+		cmd.Stderr = NewProcessWriter(name, os.Stderr, true)
+	} else {
+		// Log to both process file and stdout/stderr
+		cmd.Stdout = NewMultiWriter(
+			fileLogger,
+			NewProcessWriter(name, os.Stdout, false),
+		)
+		cmd.Stderr = NewMultiWriter(
+			fileLogger,
+			NewProcessWriter(name, os.Stderr, true),
+		)
+	}
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 	}
@@ -159,7 +213,7 @@ func (m *Manager) StartProcess(name string) error {
 	m.wg.Add(1)
 	go m.trackStartupCompletion(process)
 
-	m.logger.Info("process started", "name", name, "pid", cmd.Process.Pid)
+	processLogger.Info("process started", "pid", cmd.Process.Pid, "state", StateRunning)
 	return nil
 }
 
@@ -179,12 +233,13 @@ func (m *Manager) StopProcess(name string) error {
 		return nil
 	}
 
-	m.logger.Info("stopping process", "name", name)
+	processLogger := m.logger.With("process", name, "state", process.State)
+	processLogger.Info("stopping process")
 	process.State = StateStopping
 
 	if process.Cmd != nil && process.Cmd.Process != nil {
 		if err := process.Cmd.Process.Signal(syscall.SIGTERM); err != nil {
-			m.logger.Warn("failed to send SIGTERM", "name", name, "error", err)
+			processLogger.Warn("failed to send SIGTERM", "error", err, "signal", "SIGTERM")
 		}
 
 		done := make(chan error, 1)
@@ -194,21 +249,23 @@ func (m *Manager) StopProcess(name string) error {
 
 		select {
 		case <-time.After(m.config.ShutdownTimeout):
-			m.logger.Warn("process did not stop gracefully, sending SIGKILL", "name", name)
+			processLogger.Warn("process did not stop gracefully, sending SIGKILL",
+				"timeout", m.config.ShutdownTimeout,
+				"signal", "SIGKILL")
 			if err := process.Cmd.Process.Kill(); err != nil {
-				m.logger.Error("failed to kill process", "name", name, "error", err)
+				processLogger.Error("failed to kill process", "error", err, "signal", "SIGKILL")
 			}
 			<-done
 		case err := <-done:
 			if err != nil {
-				m.logger.Debug("process exited with error", "name", name, "error", err)
+				processLogger.Debug("process exited with error during shutdown", "error", err)
 			}
 		}
 	}
 
 	process.State = StateStopped
 	process.Cmd = nil
-	m.logger.Info("process stopped", "name", name)
+	processLogger.Info("process stopped", "final_state", StateStopped)
 	return nil
 }
 
@@ -228,7 +285,7 @@ func (m *Manager) RestartProcess(name string) error {
 
 func (m *Manager) trackStartupCompletion(process *Process) {
 	defer m.wg.Done()
-	
+
 	startTime := time.Now()
 	select {
 	case <-m.ctx.Done():
@@ -238,15 +295,30 @@ func (m *Manager) trackStartupCompletion(process *Process) {
 		process.mu.Lock()
 		if process.State == StateRunning {
 			process.StartupComplete = true
-			m.logger.Debug("process startup completed", 
-				"name", process.Config.Name, 
-				"duration", time.Since(startTime))
+			startupLogger := m.logger.With(
+				"process", process.Config.Name,
+				"phase", "startup_completion",
+				"startup_time", process.Config.StartupTime,
+			)
+			startupLogger.Debug("process startup completed",
+				"duration", time.Since(startTime),
+				"state", StateRunning)
 		}
 		process.mu.Unlock()
 	}
 }
 
 func (m *Manager) StopAll() error {
+	// Stop HTTP server first
+	if m.httpServer != nil {
+		if err := m.httpServer.Stop(); err != nil {
+			m.logger.Warn("failed to stop HTTP server", "error", err)
+		}
+	}
+
+	// Stop health checker
+	m.healthChecker.Stop()
+
 	stopOrder := m.getStopOrder()
 	m.logger.Info("stopping all processes", "order", stopOrder)
 
@@ -275,6 +347,11 @@ func (m *Manager) StopAll() error {
 		return fmt.Errorf("errors stopping processes: %v", errs)
 	}
 
+	// Close log manager
+	if err := m.logManager.CloseAll(); err != nil {
+		m.logger.Warn("failed to close log manager", "error", err)
+	}
+
 	m.cancel()
 	return nil
 }
@@ -286,13 +363,13 @@ func (m *Manager) monitorProcess(process *Process) {
 	process.mu.RLock()
 	cmd := process.Cmd
 	process.mu.RUnlock()
-	
+
 	if cmd == nil {
 		return
 	}
-	
+
 	err := cmd.Wait()
-	
+
 	process.mu.Lock()
 	currentState := process.State
 	if currentState == StateStopping {
@@ -307,17 +384,29 @@ func (m *Manager) monitorProcess(process *Process) {
 			exitCode = exitError.ExitCode()
 		}
 		process.State = StateFailed
-		m.logger.Warn("process exited with error", 
-			"name", process.Config.Name, 
-			"exit_code", exitCode, 
-			"error", err)
+		processLogger := m.logger.With(
+			"process", process.Config.Name,
+			"state", StateFailed,
+			"startup_complete", process.StartupComplete,
+			"startup_attempts", process.StartupAttempts,
+			"runtime_restarts", process.RuntimeRestarts,
+		)
+		processLogger.Warn("process exited with error",
+			"exit_code", exitCode,
+			"error", err,
+			"uptime", time.Since(process.LastStart))
 	} else {
 		process.State = StateStopped
-		m.logger.Info("process exited normally", "name", process.Config.Name)
+		processLogger := m.logger.With(
+			"process", process.Config.Name,
+			"state", StateStopped,
+			"uptime", time.Since(process.LastStart),
+		)
+		processLogger.Info("process exited normally")
 	}
 
 	shouldRestart := m.shouldRestart(process, exitCode)
-	
+
 	// Increment appropriate counter based on startup phase
 	if shouldRestart {
 		if !process.StartupComplete {
@@ -326,7 +415,7 @@ func (m *Manager) monitorProcess(process *Process) {
 			process.RuntimeRestarts++
 		}
 	}
-	
+
 	processName := process.Config.Name
 	startupAttempts := process.StartupAttempts
 	runtimeRestarts := process.RuntimeRestarts
@@ -335,16 +424,22 @@ func (m *Manager) monitorProcess(process *Process) {
 	process.mu.Unlock()
 
 	if shouldRestart {
+		restartLogger := m.logger.With(
+			"process", processName,
+			"restart_policy", process.Config.RestartPolicy,
+			"restart_delay", restartDelay,
+		)
+
 		if !startupComplete {
-			m.logger.Info("restarting process (startup failure)", 
-				"name", processName, 
+			restartLogger.Info("restarting process (startup failure)",
 				"startup_attempt", startupAttempts,
-				"max_retries", process.Config.StartRetries)
+				"max_retries", process.Config.StartRetries,
+				"phase", "startup")
 		} else {
-			m.logger.Info("restarting process (runtime failure)", 
-				"name", processName, 
+			restartLogger.Info("restarting process (runtime failure)",
 				"runtime_restart", runtimeRestarts,
-				"max_restarts", process.Config.MaxRestarts)
+				"max_restarts", process.Config.MaxRestarts,
+				"phase", "runtime")
 		}
 
 		time.Sleep(restartDelay)
@@ -353,9 +448,7 @@ func (m *Manager) monitorProcess(process *Process) {
 		go func() {
 			defer m.wg.Done()
 			if err := m.StartProcess(processName); err != nil {
-				m.logger.Error("failed to restart process", 
-					"name", processName, 
-					"error", err)
+				restartLogger.Error("failed to restart process", "error", err)
 			}
 		}()
 	}
@@ -369,18 +462,20 @@ func (m *Manager) shouldRestart(process *Process, exitCode int) bool {
 	// Two-phase restart logic
 	if !process.StartupComplete {
 		// Phase 1: Startup failures
+		phaseLogger := m.logger.With(
+			"process", process.Config.Name,
+			"phase", "startup",
+			"startup_attempts", process.StartupAttempts,
+			"max_start_retries", process.Config.StartRetries,
+		)
+
 		if process.StartupAttempts >= process.Config.StartRetries {
-			m.logger.Error("process exceeded max startup attempts", 
-				"name", process.Config.Name, 
-				"startup_attempts", process.StartupAttempts,
-				"max_start_retries", process.Config.StartRetries)
+			phaseLogger.Error("process exceeded max startup attempts")
 			return false
 		}
-		
-		m.logger.Info("process failed during startup phase", 
-			"name", process.Config.Name, 
-			"attempt", process.StartupAttempts+1,
-			"max_retries", process.Config.StartRetries)
+
+		phaseLogger.Info("process failed during startup phase",
+			"attempt", process.StartupAttempts+1)
 		return true
 	}
 
@@ -398,11 +493,16 @@ func (m *Manager) shouldRestart(process *Process, exitCode int) bool {
 	}
 
 	// Limited runtime restarts
+	runtimeLogger := m.logger.With(
+		"process", process.Config.Name,
+		"phase", "runtime",
+		"runtime_restarts", process.RuntimeRestarts,
+		"max_restarts", process.Config.MaxRestarts,
+		"exit_code", exitCode,
+	)
+
 	if process.RuntimeRestarts >= process.Config.MaxRestarts {
-		m.logger.Error("process exceeded max runtime restart attempts", 
-			"name", process.Config.Name, 
-			"runtime_restarts", process.RuntimeRestarts,
-			"max_restarts", process.Config.MaxRestarts)
+		runtimeLogger.Error("process exceeded max runtime restart attempts")
 		return false
 	}
 
@@ -423,7 +523,12 @@ func (m *Manager) waitForDependencies(processName string) error {
 		return nil
 	}
 
-	m.logger.Debug("waiting for dependencies", "process", processName, "dependencies", process.Config.DependsOn)
+	dependencyLogger := m.logger.With(
+		"process", processName,
+		"dependencies", process.Config.DependsOn,
+		"dependency_count", len(process.Config.DependsOn),
+	)
+	dependencyLogger.Debug("waiting for dependencies")
 
 	timeout := time.After(30 * time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -538,4 +643,24 @@ func (m *Manager) topologicalSort(reverse bool) ([]string, error) {
 	}
 
 	return result, nil
+}
+
+// GetHealthStatus returns the health status for a specific process
+func (m *Manager) GetHealthStatus(processName string) *HealthCheckResult {
+	return m.healthChecker.GetHealthStatus(processName)
+}
+
+// GetAllHealthStatuses returns health status for all processes
+func (m *Manager) GetAllHealthStatuses() map[string]*HealthCheckResult {
+	return m.healthChecker.GetAllHealthStatuses()
+}
+
+// GetHealthSummary returns an overall health summary
+func (m *Manager) GetHealthSummary() map[string]interface{} {
+	return m.healthChecker.GetHealthSummary()
+}
+
+// IsOverallHealthy returns true if all processes with health checks are healthy
+func (m *Manager) IsOverallHealthy() bool {
+	return m.healthChecker.IsOverallHealthy()
 }

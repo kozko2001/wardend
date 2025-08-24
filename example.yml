@@ -1,0 +1,63 @@
+# Wardend Configuration Example
+# Complete example showing all available configuration options
+
+processes:
+  # Database service - runs first, always restarts
+  - name: database
+    command: "postgres -D /var/lib/postgresql/data"
+    restart_policy: always
+    health_check: "pg_isready -h localhost"
+    health_interval: "15s"
+    
+  # Cache service - independent of database, always restarts  
+  - name: cache
+    command: "redis-server --daemonize no"
+    restart_policy: always
+    health_check: "redis-cli ping"
+    health_interval: "10s"
+    
+  # API service - depends on both database and cache
+  - name: api
+    command: "gunicorn app:app --bind 0.0.0.0:8000"
+    restart_policy: on-failure
+    depends_on: ["database", "cache"]
+    health_check: "curl -f http://localhost:8000/health"
+    health_interval: "30s"
+    max_restarts: "10"
+    start_retries: 3
+    startup_time: "10s"
+    
+  # Worker service - depends on database and cache, but not API
+  - name: worker
+    command: "python worker.py"
+    restart_policy: on-failure
+    depends_on: ["database", "cache"]
+    max_restarts: "infinite"
+    
+  # Nginx proxy - depends on API, always restarts
+  - name: nginx
+    command: "nginx -g 'daemon off;'"
+    restart_policy: always
+    depends_on: ["api"]
+    health_check: "curl -f http://localhost/nginx_status"
+    health_interval: "60s"
+
+# Global configuration
+log_format: json               # json or text
+log_level: info               # debug, info, warn, error  
+log_dir: "/var/log/wardend"   # Optional: directory for per-process logs
+shutdown_timeout: "30s"       # Time to wait for graceful shutdown
+restart_delay: "2s"           # Delay between restart attempts
+start_retries: 3              # Max startup failures before giving up
+startup_time: "60s"           # Time process must run to be "successfully started"
+max_restarts: "infinite"      # Default max runtime restarts
+health_interval: "30s"        # Default health check interval
+
+# Optional: Enable HTTP monitoring endpoints
+monitor_http_port: 8080       # 0 disables, default is 0
+
+# HTTP endpoints when enabled:
+# GET /health          - Overall health (200/503)
+# GET /status          - Detailed status
+# GET /processes       - List all processes  
+# GET /processes/{name} - Individual process details

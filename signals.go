@@ -39,14 +39,14 @@ func (m *Manager) HandleSignals() {
 
 func (m *Manager) RestartAll() error {
 	states := m.GetAllProcessStates()
-	
+
 	for processName := range states {
 		if err := m.RestartProcess(processName); err != nil {
 			m.logger.Error("failed to restart process", "name", processName, "error", err)
 			return err
 		}
 	}
-	
+
 	return nil
 }
 

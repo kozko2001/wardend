@@ -1,0 +1,18 @@
+processes:
+  - name: redis
+    command: "redis-server --daemonize no --port 6379 --bind 0.0.0.0 --protected-mode no"
+    restart_policy: always
+    health_check: "redis-cli -p 6379 ping"
+    health_interval: "5s"
+    
+  - name: nginx
+    command: "nginx -g 'daemon off;'"
+    restart_policy: always
+    depends_on: ["redis"]
+    health_check: "curl -f http://localhost:80 || echo 'nginx not ready yet'"
+    health_interval: "10s"
+
+log_format: json
+log_level: debug
+shutdown_timeout: "15s"
+monitor_http_port: 9090

@@ -33,29 +33,30 @@ const (
 )
 
 type ProcessConfig struct {
-	Name            string
-	Command         string
-	RestartPolicy   RestartPolicy
-	DependsOn       []string
-	HealthCheck     string
-	HealthInterval  time.Duration
-	StartRetries    int
-	StartupTime     time.Duration
-	MaxRestarts     int  // -1 for infinite
-	RestartDelay    time.Duration
+	Name           string
+	Command        string
+	RestartPolicy  RestartPolicy
+	DependsOn      []string
+	HealthCheck    string
+	HealthInterval time.Duration
+	StartRetries   int
+	StartupTime    time.Duration
+	MaxRestarts    int // -1 for infinite
+	RestartDelay   time.Duration
 }
 
 type Config struct {
-	Processes        []ProcessConfig
-	LogFormat        LogFormat
-	LogLevel         LogLevel
-	LogDir           string
-	ShutdownTimeout  time.Duration
-	RestartDelay     time.Duration
-	StartRetries     int
-	StartupTime      time.Duration
-	MaxRestarts      int  // -1 for infinite
-	HealthInterval   time.Duration
+	Processes       []ProcessConfig
+	LogFormat       LogFormat
+	LogLevel        LogLevel
+	LogDir          string
+	ShutdownTimeout time.Duration
+	RestartDelay    time.Duration
+	StartRetries    int
+	StartupTime     time.Duration
+	MaxRestarts     int // -1 for infinite
+	HealthInterval  time.Duration
+	HTTPPort        int // 0 disables HTTP server
 }
 
 func NewConfig() *Config {
@@ -69,20 +70,21 @@ func NewConfig() *Config {
 		StartupTime:     60 * time.Second,
 		MaxRestarts:     -1, // infinite by default
 		HealthInterval:  30 * time.Second,
+		HTTPPort:        0, // disabled by default
 	}
 }
 
 func (c *Config) AddProcess(name, command string) *ProcessConfig {
 	process := ProcessConfig{
-		Name:            name,
-		Command:         command,
-		RestartPolicy:   RestartAlways,
-		DependsOn:       make([]string, 0),
-		HealthInterval:  c.HealthInterval,
-		StartRetries:    c.StartRetries,
-		StartupTime:     c.StartupTime,
-		MaxRestarts:     c.MaxRestarts,
-		RestartDelay:    c.RestartDelay,
+		Name:           name,
+		Command:        command,
+		RestartPolicy:  RestartAlways,
+		DependsOn:      make([]string, 0),
+		HealthInterval: c.HealthInterval,
+		StartRetries:   c.StartRetries,
+		StartupTime:    c.StartupTime,
+		MaxRestarts:    c.MaxRestarts,
+		RestartDelay:   c.RestartDelay,
 	}
 	c.Processes = append(c.Processes, process)
 	return &c.Processes[len(c.Processes)-1]
@@ -256,15 +258,15 @@ func ParseMaxRestarts(s string) (int, error) {
 	if s == "infinite" || s == "unlimited" {
 		return -1, nil
 	}
-	
+
 	value, err := strconv.Atoi(s)
 	if err != nil {
 		return 0, fmt.Errorf("invalid max restarts value: %s (must be 'infinite' or positive integer)", s)
 	}
-	
+
 	if value < 0 {
 		return 0, fmt.Errorf("max restarts must be positive or 'infinite', got: %d", value)
 	}
-	
+
 	return value, nil
 }

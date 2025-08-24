@@ -21,35 +21,38 @@ func (af *arrayFlags) Set(value string) error {
 }
 
 type CLIArgs struct {
-	runs              arrayFlags
-	names             arrayFlags
-	restartPolicies   arrayFlags
-	dependsOn         arrayFlags
-	healthChecks      arrayFlags
-	healthIntervals   arrayFlags
-	logFormat         string
-	logLevel          string
-	logDir            string
-	shutdownTimeout   string
-	restartDelay      string
-	startRetries      string
-	startSeconds      string
-	maxRestarts       string
+	runs                  arrayFlags
+	names                 arrayFlags
+	restartPolicies       arrayFlags
+	dependsOn             arrayFlags
+	healthChecks          arrayFlags
+	healthIntervals       arrayFlags
+	config                string
+	logFormat             string
+	logLevel              string
+	logDir                string
+	shutdownTimeout       string
+	restartDelay          string
+	startRetries          string
+	startSeconds          string
+	maxRestarts           string
 	defaultHealthInterval string
-	help              bool
-	version           bool
+	monitorHTTPPort       string
+	help                  bool
+	version               bool
 }
 
 func main() {
 	args := &CLIArgs{}
-	
+
 	flag.Var(&args.runs, "run", "Process command to run (can be specified multiple times)")
 	flag.Var(&args.names, "name", "Name for the last --run process")
 	flag.Var(&args.restartPolicies, "restart", "Restart policy: always|on-failure|never (default: always)")
 	flag.Var(&args.dependsOn, "depends-on", "Process dependency (wait for named process)")
 	flag.Var(&args.healthChecks, "health-check", "Health check command for process")
 	flag.Var(&args.healthIntervals, "health-interval", "Health check interval (default: 30s)")
-	
+
+	flag.StringVar(&args.config, "config", "", "Path to YAML configuration file")
 	flag.StringVar(&args.logFormat, "log-format", "text", "Log format: json|text (default: text)")
 	flag.StringVar(&args.logLevel, "log-level", "info", "Log level: debug|info|warn|error (default: info)")
 	flag.StringVar(&args.logDir, "log-dir", "", "Directory for per-process logs")
@@ -59,10 +62,11 @@ func main() {
 	flag.StringVar(&args.startSeconds, "start-seconds", "60s", "Time process must run to be considered successfully started (default: 60s)")
 	flag.StringVar(&args.maxRestarts, "max-restarts", "infinite", "Max runtime restart attempts (default: infinite)")
 	flag.StringVar(&args.defaultHealthInterval, "health-interval-default", "30s", "Default health check interval (default: 30s)")
+	flag.StringVar(&args.monitorHTTPPort, "monitor-http-port", "0", "HTTP monitoring/health check server port (0 disables, default: 0)")
 	flag.BoolVar(&args.help, "help", false, "Show help")
 	flag.BoolVar(&args.help, "h", false, "Show help")
 	flag.BoolVar(&args.version, "version", false, "Show version")
-	
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Wardend - The SQLite of process management for Docker containers
 
@@ -73,6 +77,9 @@ for containerized environments. Run multiple processes with proper signal handli
 restart policies, health checks, and dependency management.
 
 Examples:
+  # Using YAML configuration file
+  %s --config wardend.yml
+
   # Simple multi-process container
   %s --run "nginx -g 'daemon off;'" --name web --restart always \
 %s --run "python worker.py" --name worker --restart on-failure
@@ -84,10 +91,10 @@ Examples:
 %s --log-format json --shutdown-timeout 30s
 
 OPTIONS:
-`, os.Args[0], os.Args[0], strings.Repeat(" ", len(os.Args[0])), os.Args[0], strings.Repeat(" ", len(os.Args[0])), strings.Repeat(" ", len(os.Args[0])), strings.Repeat(" ", len(os.Args[0])))
+`, os.Args[0], os.Args[0], os.Args[0], strings.Repeat(" ", len(os.Args[0])), os.Args[0], strings.Repeat(" ", len(os.Args[0])), strings.Repeat(" ", len(os.Args[0])), strings.Repeat(" ", len(os.Args[0])))
 		flag.PrintDefaults()
 	}
-	
+
 	flag.Parse()
 
 	if args.help {
@@ -100,12 +107,24 @@ OPTIONS:
 		os.Exit(0)
 	}
 
-	config, err := buildConfig(args)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	var config *Config
+	var err error
 
+	if args.config != "" {
+		// Load from YAML file
+		config, err = LoadYAMLConfig(args.config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config file: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		// Build from CLI arguments
+		config, err = buildConfig(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	if err := config.Validate(); err != nil {
 		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
@@ -200,6 +219,15 @@ func buildConfig(args *CLIArgs) (*Config, error) {
 		return nil, fmt.Errorf("invalid default health interval: %v", err)
 	}
 	config.HealthInterval = defaultHealthInterval
+
+	monitorHTTPPort, err := strconv.Atoi(args.monitorHTTPPort)
+	if err != nil {
+		return nil, fmt.Errorf("invalid monitor HTTP port: %v", err)
+	}
+	if monitorHTTPPort < 0 || monitorHTTPPort > 65535 {
+		return nil, fmt.Errorf("monitor HTTP port must be between 0 and 65535, got: %d", monitorHTTPPort)
+	}
+	config.HTTPPort = monitorHTTPPort
 
 	nameIndex := 0
 	restartIndex := 0

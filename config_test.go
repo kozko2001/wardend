@@ -52,25 +52,25 @@ func TestNewConfig(t *testing.T) {
 
 func TestConfigAddProcess(t *testing.T) {
 	config := NewConfig()
-	
+
 	process := config.AddProcess("test", "echo hello")
-	
+
 	if len(config.Processes) != 1 {
 		t.Errorf("Expected 1 process, got %d", len(config.Processes))
 	}
-	
+
 	if process.Name != "test" {
 		t.Errorf("Expected process name to be 'test', got '%s'", process.Name)
 	}
-	
+
 	if process.Command != "echo hello" {
 		t.Errorf("Expected process command to be 'echo hello', got '%s'", process.Command)
 	}
-	
+
 	if process.RestartPolicy != RestartAlways {
 		t.Errorf("Expected default restart policy to be 'always', got '%s'", process.RestartPolicy)
 	}
-	
+
 	if len(process.DependsOn) != 0 {
 		t.Errorf("Expected no dependencies, got %d", len(process.DependsOn))
 	}
@@ -166,9 +166,9 @@ func TestConfigValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			config := NewConfig()
 			tt.setup(config)
-			
+
 			err := config.Validate()
-			
+
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Errorf("Expected no error, got: %v", err)
@@ -203,19 +203,19 @@ func TestParseRestartPolicy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			got, err := ParseRestartPolicy(tt.input)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("Expected error for input '%s', got nil", tt.input)
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Unexpected error for input '%s': %v", tt.input, err)
 				return
 			}
-			
+
 			if got != tt.want {
 				t.Errorf("For input '%s', expected %s, got %s", tt.input, tt.want, got)
 			}
@@ -241,19 +241,19 @@ func TestParseLogFormat(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			got, err := ParseLogFormat(tt.input)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("Expected error for input '%s', got nil", tt.input)
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Unexpected error for input '%s': %v", tt.input, err)
 				return
 			}
-			
+
 			if got != tt.want {
 				t.Errorf("For input '%s', expected %s, got %s", tt.input, tt.want, got)
 			}
@@ -281,19 +281,19 @@ func TestParseLogLevel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			got, err := ParseLogLevel(tt.input)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("Expected error for input '%s', got nil", tt.input)
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Unexpected error for input '%s': %v", tt.input, err)
 				return
 			}
-			
+
 			if got != tt.want {
 				t.Errorf("For input '%s', expected %s, got %s", tt.input, tt.want, got)
 			}
@@ -308,7 +308,7 @@ func TestValidateRestartPolicy(t *testing.T) {
 			t.Errorf("Expected valid policy %s to pass validation, got error: %v", policy, err)
 		}
 	}
-	
+
 	if err := validateRestartPolicy("invalid"); err == nil {
 		t.Error("Expected invalid policy to fail validation")
 	}
@@ -321,7 +321,7 @@ func TestValidateLogFormat(t *testing.T) {
 			t.Errorf("Expected valid format %s to pass validation, got error: %v", format, err)
 		}
 	}
-	
+
 	if err := validateLogFormat("invalid"); err == nil {
 		t.Error("Expected invalid format to fail validation")
 	}
@@ -334,7 +334,7 @@ func TestValidateLogLevel(t *testing.T) {
 			t.Errorf("Expected valid level %s to pass validation, got error: %v", level, err)
 		}
 	}
-	
+
 	if err := validateLogLevel("invalid"); err == nil {
 		t.Error("Expected invalid level to fail validation")
 	}

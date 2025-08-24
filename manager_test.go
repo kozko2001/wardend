@@ -17,7 +17,7 @@ func TestManager_Initialize(t *testing.T) {
 	}
 
 	manager := NewManager(config)
-	
+
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestManager_StartStopProcess(t *testing.T) {
 	}
 
 	manager := NewManager(config)
-	
+
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
@@ -163,9 +163,9 @@ func TestManager_RestartProcess(t *testing.T) {
 	config := &Config{
 		Processes: []ProcessConfig{
 			{
-				Name:          "quick_task", 
-				Command:       "echo hello", 
-				RestartPolicy: RestartNever, 
+				Name:          "quick_task",
+				Command:       "echo hello",
+				RestartPolicy: RestartNever,
 				RestartDelay:  100 * time.Millisecond,
 			},
 		},
@@ -176,7 +176,7 @@ func TestManager_RestartProcess(t *testing.T) {
 	}
 
 	manager := NewManager(config)
-	
+
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestManager_AllProcessStates(t *testing.T) {
 	}
 
 	manager := NewManager(config)
-	
+
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestManager_StartAll_WithDependencies(t *testing.T) {
 	}
 
 	manager := NewManager(config)
-	
+
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestManager_ProcessMonitoring_RestartOnFailure(t *testing.T) {
 				Command:       "exit 1",
 				RestartPolicy: RestartOnFailure,
 				StartRetries:  3,
-				StartupTime:  1 * time.Second,
+				StartupTime:   1 * time.Second,
 				MaxRestarts:   2,
 				RestartDelay:  200 * time.Millisecond,
 			},
@@ -291,7 +291,7 @@ func TestManager_ProcessMonitoring_RestartOnFailure(t *testing.T) {
 	}
 
 	manager := NewManager(config)
-	
+
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestManager_ProcessMonitoring_NoRestartOnNever(t *testing.T) {
 				Command:       "exit 0",
 				RestartPolicy: RestartNever,
 				StartRetries:  3,
-				StartupTime:  1 * time.Second,
+				StartupTime:   1 * time.Second,
 				MaxRestarts:   5,
 				RestartDelay:  100 * time.Millisecond,
 			},
@@ -335,7 +335,7 @@ func TestManager_ProcessMonitoring_NoRestartOnNever(t *testing.T) {
 	}
 
 	manager := NewManager(config)
-	
+
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
@@ -371,13 +371,13 @@ func TestManager_TwoPhaseRestart(t *testing.T) {
 		config := &Config{
 			Processes: []ProcessConfig{
 				{
-					Name: "startup_failure", 
-					Command: "exit 1", 
+					Name:          "startup_failure",
+					Command:       "exit 1",
 					RestartPolicy: RestartAlways,
-					StartRetries: 2,
-					StartupTime: 1 * time.Second,
-					MaxRestarts: 5,
-					RestartDelay: 100 * time.Millisecond,
+					StartRetries:  2,
+					StartupTime:   1 * time.Second,
+					MaxRestarts:   5,
+					RestartDelay:  100 * time.Millisecond,
 				},
 			},
 			LogFormat: LogFormatText,
@@ -423,13 +423,13 @@ func TestManager_TwoPhaseRestart(t *testing.T) {
 		config := &Config{
 			Processes: []ProcessConfig{
 				{
-					Name: "runtime_failure", 
-					Command: "sleep 2; exit 1", 
+					Name:          "runtime_failure",
+					Command:       "sleep 2; exit 1",
 					RestartPolicy: RestartAlways,
-					StartRetries: 3,
-					StartupTime: 500 * time.Millisecond, // Short startup window
-					MaxRestarts: 2,
-					RestartDelay: 100 * time.Millisecond,
+					StartRetries:  3,
+					StartupTime:   500 * time.Millisecond, // Short startup window
+					MaxRestarts:   2,
+					RestartDelay:  100 * time.Millisecond,
 				},
 			},
 			LogFormat: LogFormatText,
@@ -470,17 +470,18 @@ func TestManager_TwoPhaseRestart(t *testing.T) {
 		config := &Config{
 			Processes: []ProcessConfig{
 				{
-					Name: "infinite_restarts", 
-					Command: "sleep 1; exit 0", 
+					Name:          "infinite_restarts",
+					Command:       "sleep 1; exit 0",
 					RestartPolicy: RestartAlways,
-					StartRetries: 3,
-					StartupTime: 500 * time.Millisecond,
-					MaxRestarts: -1, // infinite
-					RestartDelay: 100 * time.Millisecond,
+					StartRetries:  3,
+					StartupTime:   500 * time.Millisecond,
+					MaxRestarts:   -1, // infinite
+					RestartDelay:  100 * time.Millisecond,
 				},
 			},
-			LogFormat: LogFormatText,
-			LogLevel:  LogLevelInfo,
+			LogFormat:       LogFormatText,
+			LogLevel:        LogLevelInfo,
+			ShutdownTimeout: 2 * time.Second,
 		}
 
 		manager := NewManager(config)
@@ -492,7 +493,7 @@ func TestManager_TwoPhaseRestart(t *testing.T) {
 			t.Fatalf("StartProcess failed: %v", err)
 		}
 
-		// Wait for multiple runtime restarts 
+		// Wait for multiple runtime restarts
 		time.Sleep(4 * time.Second)
 
 		process := manager.processes["infinite_restarts"]
@@ -509,7 +510,9 @@ func TestManager_TwoPhaseRestart(t *testing.T) {
 			t.Errorf("Process should not be in failed state with infinite restarts")
 		}
 
+		// Cancel context to stop monitoring and restarts
 		manager.cancel()
+		time.Sleep(200 * time.Millisecond) // Wait for cleanup
 	})
 }
 
@@ -531,7 +534,7 @@ func TestManager_ParseMaxRestarts(t *testing.T) {
 
 	for _, test := range tests {
 		result, err := ParseMaxRestarts(test.input)
-		
+
 		if test.hasError && err == nil {
 			t.Errorf("Expected error for input %q, but got none", test.input)
 		}

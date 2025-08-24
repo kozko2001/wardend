@@ -1,0 +1,16 @@
+processes:
+  - name: web
+    command: "echo 'Web server starting'; sleep 5; echo 'Web server ready'"
+    restart_policy: never
+    health_check: "echo 'healthy'"
+    health_interval: "2s"
+    
+  - name: worker
+    command: "echo 'Worker starting'; sleep 3; echo 'Worker processing'; sleep 2; echo 'Worker done'"
+    restart_policy: never
+    depends_on: ["web"]
+
+log_format: json
+log_level: info
+shutdown_timeout: "10s"
+monitor_http_port: 8080
