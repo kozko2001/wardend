@@ -38,7 +38,7 @@ func TestManager_Initialize(t *testing.T) {
 func TestManager_StartStopProcess(t *testing.T) {
 	config := &Config{
 		Processes: []ProcessConfig{
-			{Name: "sleep_test", Command: "sleep 10", RestartPolicy: RestartNever, RestartDelay: 100 * time.Millisecond},
+			{Name: "sleep_test", Command: "sleep 10", RestartPolicy: RestartNever, StartRetries: 3, StartupTime: 1 * time.Second, MaxRestarts: 5, RestartDelay: 100 * time.Millisecond},
 		},
 		LogFormat:       LogFormatText,
 		LogLevel:        LogLevelInfo,
@@ -279,6 +279,8 @@ func TestManager_ProcessMonitoring_RestartOnFailure(t *testing.T) {
 				Name:          "failing_process",
 				Command:       "exit 1",
 				RestartPolicy: RestartOnFailure,
+				StartRetries:  3,
+				StartupTime:  1 * time.Second,
 				MaxRestarts:   2,
 				RestartDelay:  200 * time.Millisecond,
 			},
@@ -302,10 +304,12 @@ func TestManager_ProcessMonitoring_RestartOnFailure(t *testing.T) {
 
 	process := manager.processes["failing_process"]
 	process.mu.RLock()
-	restartCount := process.RestartCount
+	startupAttempts := process.StartupAttempts
+	runtimeRestarts := process.RuntimeRestarts
 	process.mu.RUnlock()
 
-	if restartCount == 0 {
+	// Should have some restart attempts (could be startup or runtime)
+	if startupAttempts == 0 && runtimeRestarts == 0 {
 		t.Error("Expected process to have been restarted at least once")
 	}
 
@@ -319,6 +323,8 @@ func TestManager_ProcessMonitoring_NoRestartOnNever(t *testing.T) {
 				Name:          "quick_exit",
 				Command:       "exit 0",
 				RestartPolicy: RestartNever,
+				StartRetries:  3,
+				StartupTime:  1 * time.Second,
 				MaxRestarts:   5,
 				RestartDelay:  100 * time.Millisecond,
 			},
@@ -342,12 +348,13 @@ func TestManager_ProcessMonitoring_NoRestartOnNever(t *testing.T) {
 
 	process := manager.processes["quick_exit"]
 	process.mu.RLock()
-	restartCount := process.RestartCount
+	startupAttempts := process.StartupAttempts
+	runtimeRestarts := process.RuntimeRestarts
 	state := process.State
 	process.mu.RUnlock()
 
-	if restartCount != 0 {
-		t.Errorf("Expected no restarts for RestartNever policy, got %d", restartCount)
+	if startupAttempts != 0 || runtimeRestarts != 0 {
+		t.Errorf("Expected no restarts for RestartNever policy, got startup=%d runtime=%d", startupAttempts, runtimeRestarts)
 	}
 
 	if state != StateStopped {
@@ -355,4 +362,184 @@ func TestManager_ProcessMonitoring_NoRestartOnNever(t *testing.T) {
 	}
 
 	manager.cancel()
+}
+
+// TestManager_TwoPhaseRestart tests the new startup vs runtime restart logic
+func TestManager_TwoPhaseRestart(t *testing.T) {
+	t.Run("StartupFailure", func(t *testing.T) {
+		// Process that exits immediately (startup failure)
+		config := &Config{
+			Processes: []ProcessConfig{
+				{
+					Name: "startup_failure", 
+					Command: "exit 1", 
+					RestartPolicy: RestartAlways,
+					StartRetries: 2,
+					StartupTime: 1 * time.Second,
+					MaxRestarts: 5,
+					RestartDelay: 100 * time.Millisecond,
+				},
+			},
+			LogFormat: LogFormatText,
+			LogLevel:  LogLevelInfo,
+		}
+
+		manager := NewManager(config)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		// Start process and let it fail during startup phase
+		if err := manager.StartProcess("startup_failure"); err != nil {
+			t.Fatalf("StartProcess failed: %v", err)
+		}
+
+		// Wait for startup failures to exhaust
+		time.Sleep(500 * time.Millisecond)
+
+		process := manager.processes["startup_failure"]
+		process.mu.RLock()
+		startupAttempts := process.StartupAttempts
+		runtimeRestarts := process.RuntimeRestarts
+		startupComplete := process.StartupComplete
+		process.mu.RUnlock()
+
+		// Should have failed startup attempts but no runtime restarts
+		if startupAttempts < 2 {
+			t.Errorf("Expected at least 2 startup attempts, got %d", startupAttempts)
+		}
+		if runtimeRestarts > 0 {
+			t.Errorf("Expected 0 runtime restarts, got %d", runtimeRestarts)
+		}
+		if startupComplete {
+			t.Errorf("Process should not have completed startup")
+		}
+
+		manager.cancel()
+	})
+
+	t.Run("RuntimeFailure", func(t *testing.T) {
+		// Process that runs for a while then exits (runtime failure)
+		config := &Config{
+			Processes: []ProcessConfig{
+				{
+					Name: "runtime_failure", 
+					Command: "sleep 2; exit 1", 
+					RestartPolicy: RestartAlways,
+					StartRetries: 3,
+					StartupTime: 500 * time.Millisecond, // Short startup window
+					MaxRestarts: 2,
+					RestartDelay: 100 * time.Millisecond,
+				},
+			},
+			LogFormat: LogFormatText,
+			LogLevel:  LogLevelInfo,
+		}
+
+		manager := NewManager(config)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		if err := manager.StartProcess("runtime_failure"); err != nil {
+			t.Fatalf("StartProcess failed: %v", err)
+		}
+
+		// Wait for startup completion + first runtime failure + restart + second failure
+		time.Sleep(7 * time.Second)
+
+		process := manager.processes["runtime_failure"]
+		process.mu.RLock()
+		startupAttempts := process.StartupAttempts
+		runtimeRestarts := process.RuntimeRestarts
+		process.mu.RUnlock()
+
+		// Should have minimal startup attempts but multiple runtime restarts
+		if startupAttempts > 1 {
+			t.Errorf("Expected minimal startup attempts, got %d", startupAttempts)
+		}
+		if runtimeRestarts < 2 {
+			t.Errorf("Expected at least 2 runtime restarts, got %d", runtimeRestarts)
+		}
+
+		manager.cancel()
+	})
+
+	t.Run("InfiniteRuntimeRestarts", func(t *testing.T) {
+		// Test infinite runtime restarts
+		config := &Config{
+			Processes: []ProcessConfig{
+				{
+					Name: "infinite_restarts", 
+					Command: "sleep 1; exit 0", 
+					RestartPolicy: RestartAlways,
+					StartRetries: 3,
+					StartupTime: 500 * time.Millisecond,
+					MaxRestarts: -1, // infinite
+					RestartDelay: 100 * time.Millisecond,
+				},
+			},
+			LogFormat: LogFormatText,
+			LogLevel:  LogLevelInfo,
+		}
+
+		manager := NewManager(config)
+		if err := manager.Initialize(); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		if err := manager.StartProcess("infinite_restarts"); err != nil {
+			t.Fatalf("StartProcess failed: %v", err)
+		}
+
+		// Wait for multiple runtime restarts 
+		time.Sleep(4 * time.Second)
+
+		process := manager.processes["infinite_restarts"]
+		process.mu.RLock()
+		runtimeRestarts := process.RuntimeRestarts
+		state := process.State
+		process.mu.RUnlock()
+
+		// Should keep restarting with no limit
+		if runtimeRestarts < 3 {
+			t.Errorf("Expected multiple runtime restarts, got %d", runtimeRestarts)
+		}
+		if state == StateFailed {
+			t.Errorf("Process should not be in failed state with infinite restarts")
+		}
+
+		manager.cancel()
+	})
+}
+
+// TestManager_ParseMaxRestarts tests the new max restarts parsing
+func TestManager_ParseMaxRestarts(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected int
+		hasError bool
+	}{
+		{"infinite", -1, false},
+		{"unlimited", -1, false},
+		{"5", 5, false},
+		{"0", 0, false},
+		{"-2", 0, true},
+		{"invalid", 0, true},
+		{"", 0, true},
+	}
+
+	for _, test := range tests {
+		result, err := ParseMaxRestarts(test.input)
+		
+		if test.hasError && err == nil {
+			t.Errorf("Expected error for input %q, but got none", test.input)
+		}
+		if !test.hasError && err != nil {
+			t.Errorf("Unexpected error for input %q: %v", test.input, err)
+		}
+		if !test.hasError && result != test.expected {
+			t.Errorf("For input %q, expected %d, got %d", test.input, test.expected, result)
+		}
+	}
 }

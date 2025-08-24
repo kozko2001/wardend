@@ -22,12 +22,14 @@ const (
 )
 
 type Process struct {
-	Config       ProcessConfig
-	State        ProcessState
-	Cmd          *exec.Cmd
-	RestartCount int
-	LastStart    time.Time
-	mu           sync.RWMutex
+	Config           ProcessConfig
+	State            ProcessState
+	Cmd              *exec.Cmd
+	StartupAttempts  int       // Failures during startup phase
+	RuntimeRestarts  int       // Restarts after successful startup
+	LastStart        time.Time
+	StartupComplete  bool      // Has process run long enough to be considered started
+	mu               sync.RWMutex
 }
 
 type Manager struct {
@@ -148,9 +150,14 @@ func (m *Manager) StartProcess(name string) error {
 
 	process.Cmd = cmd
 	process.State = StateRunning
+	process.StartupComplete = false
 
 	m.wg.Add(1)
 	go m.monitorProcess(process)
+
+	// Start a goroutine to mark startup as complete after StartupTime
+	m.wg.Add(1)
+	go m.trackStartupCompletion(process)
 
 	m.logger.Info("process started", "name", name, "pid", cmd.Process.Pid)
 	return nil
@@ -217,6 +224,26 @@ func (m *Manager) RestartProcess(name string) error {
 	}
 
 	return nil
+}
+
+func (m *Manager) trackStartupCompletion(process *Process) {
+	defer m.wg.Done()
+	
+	startTime := time.Now()
+	select {
+	case <-m.ctx.Done():
+		return
+	case <-time.After(process.Config.StartupTime):
+		// Check if process is still running after StartupTime
+		process.mu.Lock()
+		if process.State == StateRunning {
+			process.StartupComplete = true
+			m.logger.Debug("process startup completed", 
+				"name", process.Config.Name, 
+				"duration", time.Since(startTime))
+		}
+		process.mu.Unlock()
+	}
 }
 
 func (m *Manager) StopAll() error {
@@ -290,19 +317,35 @@ func (m *Manager) monitorProcess(process *Process) {
 	}
 
 	shouldRestart := m.shouldRestart(process, exitCode)
+	
+	// Increment appropriate counter based on startup phase
 	if shouldRestart {
-		process.RestartCount++
+		if !process.StartupComplete {
+			process.StartupAttempts++
+		} else {
+			process.RuntimeRestarts++
+		}
 	}
 	
 	processName := process.Config.Name
-	restartCount := process.RestartCount
+	startupAttempts := process.StartupAttempts
+	runtimeRestarts := process.RuntimeRestarts
 	restartDelay := process.Config.RestartDelay
+	startupComplete := process.StartupComplete
 	process.mu.Unlock()
 
 	if shouldRestart {
-		m.logger.Info("restarting process", 
-			"name", processName, 
-			"restart_count", restartCount)
+		if !startupComplete {
+			m.logger.Info("restarting process (startup failure)", 
+				"name", processName, 
+				"startup_attempt", startupAttempts,
+				"max_retries", process.Config.StartRetries)
+		} else {
+			m.logger.Info("restarting process (runtime failure)", 
+				"name", processName, 
+				"runtime_restart", runtimeRestarts,
+				"max_restarts", process.Config.MaxRestarts)
+		}
 
 		time.Sleep(restartDelay)
 
@@ -323,9 +366,42 @@ func (m *Manager) shouldRestart(process *Process, exitCode int) bool {
 		return false
 	}
 
-	if process.RestartCount >= process.Config.MaxRestarts {
-		m.logger.Error("process exceeded max restart attempts", 
+	// Two-phase restart logic
+	if !process.StartupComplete {
+		// Phase 1: Startup failures
+		if process.StartupAttempts >= process.Config.StartRetries {
+			m.logger.Error("process exceeded max startup attempts", 
+				"name", process.Config.Name, 
+				"startup_attempts", process.StartupAttempts,
+				"max_start_retries", process.Config.StartRetries)
+			return false
+		}
+		
+		m.logger.Info("process failed during startup phase", 
 			"name", process.Config.Name, 
+			"attempt", process.StartupAttempts+1,
+			"max_retries", process.Config.StartRetries)
+		return true
+	}
+
+	// Phase 2: Runtime failures
+	// Check if infinite restarts are allowed
+	if process.Config.MaxRestarts == -1 {
+		// Infinite restarts allowed
+		if process.Config.RestartPolicy == RestartAlways {
+			return true
+		}
+		if process.Config.RestartPolicy == RestartOnFailure && exitCode != 0 {
+			return true
+		}
+		return false
+	}
+
+	// Limited runtime restarts
+	if process.RuntimeRestarts >= process.Config.MaxRestarts {
+		m.logger.Error("process exceeded max runtime restart attempts", 
+			"name", process.Config.Name, 
+			"runtime_restarts", process.RuntimeRestarts,
 			"max_restarts", process.Config.MaxRestarts)
 		return false
 	}

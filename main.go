@@ -32,6 +32,8 @@ type CLIArgs struct {
 	logDir            string
 	shutdownTimeout   string
 	restartDelay      string
+	startRetries      string
+	startSeconds      string
 	maxRestarts       string
 	defaultHealthInterval string
 	help              bool
@@ -53,7 +55,9 @@ func main() {
 	flag.StringVar(&args.logDir, "log-dir", "", "Directory for per-process logs")
 	flag.StringVar(&args.shutdownTimeout, "shutdown-timeout", "10s", "Graceful shutdown timeout (default: 10s)")
 	flag.StringVar(&args.restartDelay, "restart-delay", "1s", "Delay between restart attempts (default: 1s)")
-	flag.StringVar(&args.maxRestarts, "max-restarts", "5", "Max restart attempts before giving up (default: 5)")
+	flag.StringVar(&args.startRetries, "start-retries", "3", "Max startup failure attempts before giving up (default: 3)")
+	flag.StringVar(&args.startSeconds, "start-seconds", "60s", "Time process must run to be considered successfully started (default: 60s)")
+	flag.StringVar(&args.maxRestarts, "max-restarts", "infinite", "Max runtime restart attempts (default: infinite)")
 	flag.StringVar(&args.defaultHealthInterval, "health-interval-default", "30s", "Default health check interval (default: 30s)")
 	flag.BoolVar(&args.help, "help", false, "Show help")
 	flag.BoolVar(&args.help, "h", false, "Show help")
@@ -170,9 +174,24 @@ func buildConfig(args *CLIArgs) (*Config, error) {
 	}
 	config.RestartDelay = restartDelay
 
-	maxRestarts, err := strconv.Atoi(args.maxRestarts)
+	startRetries, err := strconv.Atoi(args.startRetries)
 	if err != nil {
-		return nil, fmt.Errorf("invalid max restarts: %v", err)
+		return nil, fmt.Errorf("invalid start retries: %v", err)
+	}
+	if startRetries < 0 {
+		return nil, fmt.Errorf("start retries must be non-negative, got: %d", startRetries)
+	}
+	config.StartRetries = startRetries
+
+	startupTime, err := time.ParseDuration(args.startSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("invalid startup time: %v", err)
+	}
+	config.StartupTime = startupTime
+
+	maxRestarts, err := ParseMaxRestarts(args.maxRestarts)
+	if err != nil {
+		return nil, err
 	}
 	config.MaxRestarts = maxRestarts
 

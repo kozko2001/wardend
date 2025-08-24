@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -38,7 +39,9 @@ type ProcessConfig struct {
 	DependsOn       []string
 	HealthCheck     string
 	HealthInterval  time.Duration
-	MaxRestarts     int
+	StartRetries    int
+	StartupTime     time.Duration
+	MaxRestarts     int  // -1 for infinite
 	RestartDelay    time.Duration
 }
 
@@ -49,7 +52,9 @@ type Config struct {
 	LogDir           string
 	ShutdownTimeout  time.Duration
 	RestartDelay     time.Duration
-	MaxRestarts      int
+	StartRetries     int
+	StartupTime      time.Duration
+	MaxRestarts      int  // -1 for infinite
 	HealthInterval   time.Duration
 }
 
@@ -60,7 +65,9 @@ func NewConfig() *Config {
 		LogLevel:        LogLevelInfo,
 		ShutdownTimeout: 10 * time.Second,
 		RestartDelay:    1 * time.Second,
-		MaxRestarts:     5,
+		StartRetries:    3,
+		StartupTime:     60 * time.Second,
+		MaxRestarts:     -1, // infinite by default
 		HealthInterval:  30 * time.Second,
 	}
 }
@@ -72,6 +79,8 @@ func (c *Config) AddProcess(name, command string) *ProcessConfig {
 		RestartPolicy:   RestartAlways,
 		DependsOn:       make([]string, 0),
 		HealthInterval:  c.HealthInterval,
+		StartRetries:    c.StartRetries,
+		StartupTime:     c.StartupTime,
 		MaxRestarts:     c.MaxRestarts,
 		RestartDelay:    c.RestartDelay,
 	}
@@ -240,4 +249,22 @@ func ParseLogLevel(s string) (LogLevel, error) {
 	default:
 		return "", fmt.Errorf("invalid log level: %s", s)
 	}
+}
+
+func ParseMaxRestarts(s string) (int, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "infinite" || s == "unlimited" {
+		return -1, nil
+	}
+	
+	value, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid max restarts value: %s (must be 'infinite' or positive integer)", s)
+	}
+	
+	if value < 0 {
+		return 0, fmt.Errorf("max restarts must be positive or 'infinite', got: %d", value)
+	}
+	
+	return value, nil
 }

@@ -33,8 +33,16 @@ func TestNewConfig(t *testing.T) {
 		t.Errorf("Expected default restart delay to be 1s, got %s", config.RestartDelay)
 	}
 
-	if config.MaxRestarts != 5 {
-		t.Errorf("Expected default max restarts to be 5, got %d", config.MaxRestarts)
+	if config.MaxRestarts != -1 {
+		t.Errorf("Expected default max restarts to be -1 (infinite), got %d", config.MaxRestarts)
+	}
+
+	if config.StartRetries != 3 {
+		t.Errorf("Expected default start retries to be 3, got %d", config.StartRetries)
+	}
+
+	if config.StartupTime != 60*time.Second {
+		t.Errorf("Expected default startup time to be 60s, got %s", config.StartupTime)
 	}
 
 	if config.HealthInterval != 30*time.Second {
