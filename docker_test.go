@@ -131,7 +131,11 @@ func TestDockerHealthEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to health endpoint: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != 200 {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -293,10 +297,8 @@ func runDockerContainer(args []string, ports map[string]string) (string, error) 
 	dockerArgs := []string{"run", "-d"}
 	
 	// Add port mappings
-	if ports != nil {
-		for hostPort, containerPort := range ports {
-			dockerArgs = append(dockerArgs, "-p", fmt.Sprintf("%s:%s", hostPort, containerPort))
-		}
+	for hostPort, containerPort := range ports {
+		dockerArgs = append(dockerArgs, "-p", fmt.Sprintf("%s:%s", hostPort, containerPort))
 	}
 	
 	// Add the image name
