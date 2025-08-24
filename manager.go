@@ -255,7 +255,16 @@ func (m *Manager) StopAll() error {
 func (m *Manager) monitorProcess(process *Process) {
 	defer m.wg.Done()
 
-	err := process.Cmd.Wait()
+	// Get a reference to the command before waiting
+	process.mu.RLock()
+	cmd := process.Cmd
+	process.mu.RUnlock()
+	
+	if cmd == nil {
+		return
+	}
+	
+	err := cmd.Wait()
 	
 	process.mu.Lock()
 	currentState := process.State

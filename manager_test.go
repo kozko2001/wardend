@@ -68,9 +68,17 @@ func TestManager_StartStopProcess(t *testing.T) {
 		t.Fatalf("StopProcess failed: %v", err)
 	}
 
-	state, err = manager.GetProcessState("sleep_test")
-	if err != nil {
-		t.Fatalf("GetProcessState failed: %v", err)
+	// Wait for process to actually stop (it may take up to ShutdownTimeout)
+	timeout := time.Now().Add(3 * time.Second)
+	for time.Now().Before(timeout) {
+		state, err = manager.GetProcessState("sleep_test")
+		if err != nil {
+			t.Fatalf("GetProcessState failed: %v", err)
+		}
+		if state == StateStopped {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	if state != StateStopped {
@@ -78,6 +86,7 @@ func TestManager_StartStopProcess(t *testing.T) {
 	}
 
 	manager.cancel()
+	time.Sleep(100 * time.Millisecond) // Wait for cleanup
 }
 
 func TestManager_DependencyResolution(t *testing.T) {
