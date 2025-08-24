@@ -55,11 +55,11 @@ echo "Test 2 completed!"
 
 # Test 3: Health check endpoint
 echo "Test 3: Health check endpoint test..."
-CONTAINER_ID=$(docker run -d -p 8080:8080 wardend-test /usr/local/bin/wardend \
+CONTAINER_ID=$(docker run -d -p 9091:9091 wardend-test /usr/local/bin/wardend \
     --run "sleep 10" \
     --name "health-test" \
     --restart "never" \
-    --monitor-http-port "8080" \
+    --monitor-http-port "9091" \
     --health-check "echo 'healthy'" \
     --health-interval "2s")
 
@@ -68,7 +68,7 @@ sleep 3
 
 # Test health endpoint
 echo "Testing health endpoint..."
-if curl -f http://localhost:8080/health; then
+if curl -f http://localhost:9091/health; then
     echo "Health endpoint test passed!"
 else
     echo "Health endpoint test failed!"
