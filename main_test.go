@@ -368,3 +368,131 @@ func TestBuildConfigDependencyParsing(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildConfigMixedDependencies(t *testing.T) {
+	// This test demonstrates the CLI parsing behavior where empty strings
+	// are needed for processes without dependencies when other processes have them
+	args := &CLIArgs{
+		runs:                  arrayFlags{"echo mysql", "echo redis", "echo php", "echo nginx"},
+		names:                 arrayFlags{"mysql", "redis", "php", "nginx"},
+		dependsOn:             arrayFlags{"", "mysql", "mysql,redis", "php"},
+		logFormat:             "text",
+		logLevel:              "info",
+		shutdownTimeout:       "10s",
+		restartDelay:          "1s",
+		startRetries:          "3",
+		startSeconds:          "60s",
+		maxRestarts:           "infinite",
+		defaultHealthInterval: "30s",
+		monitorHTTPPort:       "0",
+	}
+
+	config, err := buildConfig(args)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(config.Processes) != 4 {
+		t.Errorf("Expected 4 processes, got %d", len(config.Processes))
+	}
+
+	// mysql: no dependencies (empty string)
+	mysql := config.Processes[0]
+	if len(mysql.DependsOn) != 0 {
+		t.Errorf("Expected mysql to have no dependencies, got %v", mysql.DependsOn)
+	}
+
+	// redis: depends on mysql
+	redis := config.Processes[1]
+	if len(redis.DependsOn) != 1 || redis.DependsOn[0] != "mysql" {
+		t.Errorf("Expected redis to depend on mysql, got %v", redis.DependsOn)
+	}
+
+	// php: depends on mysql and redis
+	php := config.Processes[2]
+	if len(php.DependsOn) != 2 {
+		t.Errorf("Expected php to have 2 dependencies, got %d", len(php.DependsOn))
+	}
+	expectedPhpDeps := []string{"mysql", "redis"}
+	for i, expected := range expectedPhpDeps {
+		if i >= len(php.DependsOn) || php.DependsOn[i] != expected {
+			t.Errorf("Expected php dependency %d to be '%s', got '%s'", i, expected, php.DependsOn[i])
+		}
+	}
+
+	// nginx: depends on php
+	nginx := config.Processes[3]
+	if len(nginx.DependsOn) != 1 || nginx.DependsOn[0] != "php" {
+		t.Errorf("Expected nginx to depend on php, got %v", nginx.DependsOn)
+	}
+
+	// Verify the dependency chain creates correct order
+	err = config.validateDependencies()
+	if err != nil {
+		t.Errorf("Dependency validation should pass, got error: %v", err)
+	}
+}
+
+func TestBuildConfigSparseDependencies(t *testing.T) {
+	// This test verifies that we can specify dependencies for only some processes
+	// without requiring empty strings for processes that have no dependencies
+	args := &CLIArgs{
+		runs:                  arrayFlags{"echo mysql", "echo redis", "echo php", "echo nginx"},
+		names:                 arrayFlags{"mysql", "redis", "php", "nginx"},
+		dependsOn:             arrayFlags{"mysql", "mysql,redis", "php"}, // Only 3 deps for 4 processes
+		logFormat:             "text",
+		logLevel:              "info",
+		shutdownTimeout:       "10s",
+		restartDelay:          "1s",
+		startRetries:          "3",
+		startSeconds:          "60s",
+		maxRestarts:           "infinite",
+		defaultHealthInterval: "30s",
+		monitorHTTPPort:       "0",
+	}
+
+	config, err := buildConfig(args)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(config.Processes) != 4 {
+		t.Errorf("Expected 4 processes, got %d", len(config.Processes))
+	}
+
+	// mysql: no dependencies (first process, before any --depends-on flags)
+	mysql := config.Processes[0]
+	if len(mysql.DependsOn) != 0 {
+		t.Errorf("Expected mysql to have no dependencies, got %v", mysql.DependsOn)
+	}
+
+	// redis: depends on mysql (first --depends-on flag)
+	redis := config.Processes[1] 
+	if len(redis.DependsOn) != 1 || redis.DependsOn[0] != "mysql" {
+		t.Errorf("Expected redis to depend on mysql, got %v", redis.DependsOn)
+	}
+
+	// php: depends on mysql and redis (second --depends-on flag)
+	php := config.Processes[2]
+	if len(php.DependsOn) != 2 {
+		t.Errorf("Expected php to have 2 dependencies, got %d", len(php.DependsOn))
+	}
+	expectedPhpDeps := []string{"mysql", "redis"}
+	for i, expected := range expectedPhpDeps {
+		if i >= len(php.DependsOn) || php.DependsOn[i] != expected {
+			t.Errorf("Expected php dependency %d to be '%s', got '%s'", i, expected, php.DependsOn[i])
+		}
+	}
+
+	// nginx: depends on php (third --depends-on flag)
+	nginx := config.Processes[3]
+	if len(nginx.DependsOn) != 1 || nginx.DependsOn[0] != "php" {
+		t.Errorf("Expected nginx to depend on php, got %v", nginx.DependsOn)
+	}
+
+	// Verify no circular dependencies
+	err = config.validateDependencies()
+	if err != nil {
+		t.Errorf("Dependency validation should pass, got error: %v", err)
+	}
+}

@@ -229,50 +229,44 @@ func buildConfig(args *CLIArgs) (*Config, error) {
 	}
 	config.HTTPPort = monitorHTTPPort
 
-	nameIndex := 0
-	restartIndex := 0
-	dependsIndex := 0
-	healthCheckIndex := 0
-	healthIntervalIndex := 0
-
 	for i, command := range args.runs {
 		var name string
-		if nameIndex < len(args.names) {
-			name = args.names[nameIndex]
-			nameIndex++
+		if i < len(args.names) {
+			name = args.names[i]
 		} else {
 			name = fmt.Sprintf("process-%d", i+1)
 		}
 
 		process := config.AddProcess(name, command)
 
-		if restartIndex < len(args.restartPolicies) {
-			policy, err := ParseRestartPolicy(args.restartPolicies[restartIndex])
+		if i < len(args.restartPolicies) {
+			policy, err := ParseRestartPolicy(args.restartPolicies[i])
 			if err != nil {
 				return nil, fmt.Errorf("invalid restart policy for process %s: %v", name, err)
 			}
 			process.RestartPolicy = policy
-			restartIndex++
 		}
 
-		if dependsIndex < len(args.dependsOn) {
-			deps := strings.Split(args.dependsOn[dependsIndex], ",")
+		// Handle dependencies - when there are fewer --depends-on flags than processes,
+		// we need to assign them correctly. The key insight is that a --depends-on flag
+		// is meant for the process that comes after all the processes it depends on.
+		depIdx := i - (len(args.runs) - len(args.dependsOn))
+		if depIdx >= 0 && depIdx < len(args.dependsOn) {
+			deps := strings.Split(args.dependsOn[depIdx], ",")
 			for _, dep := range deps {
 				dep = strings.TrimSpace(dep)
 				if dep != "" {
 					process.DependsOn = append(process.DependsOn, dep)
 				}
 			}
-			dependsIndex++
 		}
 
-		if healthCheckIndex < len(args.healthChecks) {
-			process.HealthCheck = args.healthChecks[healthCheckIndex]
-			healthCheckIndex++
+		if i < len(args.healthChecks) {
+			process.HealthCheck = args.healthChecks[i]
 		}
 
-		if healthIntervalIndex < len(args.healthIntervals) {
-			intervalStr := strings.TrimSpace(args.healthIntervals[healthIntervalIndex])
+		if i < len(args.healthIntervals) {
+			intervalStr := strings.TrimSpace(args.healthIntervals[i])
 			if intervalStr != "" {
 				interval, err := time.ParseDuration(intervalStr)
 				if err != nil {
@@ -280,7 +274,6 @@ func buildConfig(args *CLIArgs) (*Config, error) {
 				}
 				process.HealthInterval = interval
 			}
-			healthIntervalIndex++
 		}
 	}
 
