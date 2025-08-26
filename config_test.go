@@ -85,7 +85,7 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name:    "no processes",
 			setup:   func(c *Config) {},
-			wantErr: "no processes configured",
+			wantErr: "no processes or cron jobs configured",
 		},
 		{
 			name: "empty process name",

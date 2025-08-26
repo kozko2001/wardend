@@ -195,7 +195,7 @@ func TestBuildConfigErrors(t *testing.T) {
 				defaultHealthInterval: "30s",
 				monitorHTTPPort:       "0",
 			},
-			wantErr: "at least one --run command is required",
+			wantErr: "at least one --run command or cron job (--cron-schedule + --cron-command) is required",
 		},
 		{
 			name: "invalid log format",

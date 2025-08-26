@@ -11,6 +11,7 @@ import (
 // YAMLConfig represents the YAML configuration structure
 type YAMLConfig struct {
 	Processes       []YAMLProcessConfig `yaml:"processes"`
+	CronJobs        []YAMLCronConfig    `yaml:"cron_jobs,omitempty"`
 	LogFormat       string              `yaml:"log_format,omitempty"`
 	LogLevel        string              `yaml:"log_level,omitempty"`
 	LogDir          string              `yaml:"log_dir,omitempty"`
@@ -35,6 +36,16 @@ type YAMLProcessConfig struct {
 	StartupTime    string   `yaml:"startup_time,omitempty"`
 	MaxRestarts    string   `yaml:"max_restarts,omitempty"`
 	RestartDelay   string   `yaml:"restart_delay,omitempty"`
+}
+
+// YAMLCronConfig represents a cron job configuration in YAML
+type YAMLCronConfig struct {
+	Name      string `yaml:"name,omitempty"`
+	Schedule  string `yaml:"schedule"`
+	Command   string `yaml:"command"`
+	Retries   int    `yaml:"retries,omitempty"`
+	Timeout   string `yaml:"timeout,omitempty"`
+	LogOutput bool   `yaml:"log_output,omitempty"`
 }
 
 // LoadYAMLConfig loads configuration from a YAML file
@@ -134,6 +145,23 @@ func (yc *YAMLConfig) ToConfig() (*Config, error) {
 		config.Processes = append(config.Processes, *processConfig)
 	}
 
+	// Parse cron jobs
+	cronJobNames := make(map[string]bool)
+	for i, yamlCron := range yc.CronJobs {
+		cronConfig, err := yamlCron.ToCronConfig(i+1)
+		if err != nil {
+			return nil, fmt.Errorf("invalid cron job: %v", err)
+		}
+		
+		// Check for duplicate names
+		if cronJobNames[cronConfig.Name] {
+			return nil, fmt.Errorf("duplicate cron job name: %s", cronConfig.Name)
+		}
+		cronJobNames[cronConfig.Name] = true
+		
+		config.CronJobs = append(config.CronJobs, *cronConfig)
+	}
+
 	return config, nil
 }
 
@@ -213,6 +241,53 @@ func (yp *YAMLProcessConfig) ToProcessConfig(globalConfig *Config) (*ProcessConf
 	return &process, nil
 }
 
+// ToCronConfig converts YAMLCronConfig to CronConfig
+func (yc *YAMLCronConfig) ToCronConfig(index int) (*CronConfig, error) {
+	if yc.Schedule == "" {
+		return nil, fmt.Errorf("cron job schedule cannot be empty")
+	}
+
+	if yc.Command == "" {
+		return nil, fmt.Errorf("cron job command cannot be empty")
+	}
+
+	cronConfig := CronConfig{
+		Name:      yc.Name,
+		Schedule:  yc.Schedule,
+		Command:   yc.Command,
+		Retries:   3,                    // default retries
+		Timeout:   10 * time.Minute,     // default timeout
+		LogOutput: true,                 // default log output
+	}
+
+	// Auto-generate name if not provided
+	if cronConfig.Name == "" {
+		cronConfig.Name = fmt.Sprintf("cron-%d", index)
+	}
+
+	// Parse retries
+	if yc.Retries > 0 {
+		cronConfig.Retries = yc.Retries
+	}
+
+	// Parse timeout
+	if yc.Timeout != "" {
+		duration, err := time.ParseDuration(yc.Timeout)
+		if err != nil {
+			return nil, fmt.Errorf("invalid timeout '%s': %v", yc.Timeout, err)
+		}
+		if duration <= 0 {
+			return nil, fmt.Errorf("timeout must be positive")
+		}
+		cronConfig.Timeout = duration
+	}
+
+	// Set log output
+	cronConfig.LogOutput = yc.LogOutput
+
+	return &cronConfig, nil
+}
+
 // SaveYAMLConfig saves configuration to a YAML file
 func SaveYAMLConfig(config *Config, filename string) error {
 	yamlConfig := FromConfig(config)
@@ -270,6 +345,20 @@ func FromConfig(config *Config) *YAMLConfig {
 		}
 
 		yamlConfig.Processes = append(yamlConfig.Processes, yamlProcess)
+	}
+
+	// Convert cron jobs
+	for _, cronJob := range config.CronJobs {
+		yamlCron := YAMLCronConfig{
+			Name:      cronJob.Name,
+			Schedule:  cronJob.Schedule,
+			Command:   cronJob.Command,
+			Retries:   cronJob.Retries,
+			Timeout:   cronJob.Timeout.String(),
+			LogOutput: cronJob.LogOutput,
+		}
+
+		yamlConfig.CronJobs = append(yamlConfig.CronJobs, yamlCron)
 	}
 
 	return yamlConfig

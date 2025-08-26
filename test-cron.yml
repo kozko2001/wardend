@@ -1,0 +1,15 @@
+processes:
+  - name: test-process
+    command: "sleep 120"
+    restart_policy: always
+
+cron_jobs:
+  - name: test-backup
+    schedule: "every 10s"
+    command: "echo 'Backup completed at $(date)'"
+    retries: 3
+    timeout: "5m"
+
+log_format: json
+log_level: info
+monitor_http_port: 8083

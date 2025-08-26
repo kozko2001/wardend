@@ -27,6 +27,11 @@ type CLIArgs struct {
 	dependsOn             arrayFlags
 	healthChecks          arrayFlags
 	healthIntervals       arrayFlags
+	cronSchedules         arrayFlags
+	cronCommands          arrayFlags
+	cronNames             arrayFlags
+	cronRetries           arrayFlags
+	cronTimeouts          arrayFlags
 	config                string
 	logFormat             string
 	logLevel              string
@@ -51,6 +56,12 @@ func main() {
 	flag.Var(&args.dependsOn, "depends-on", "Process dependency (wait for named process)")
 	flag.Var(&args.healthChecks, "health-check", "Health check command for process")
 	flag.Var(&args.healthIntervals, "health-interval", "Health check interval (default: 30s)")
+	
+	flag.Var(&args.cronSchedules, "cron-schedule", "Cron job schedule (e.g., 'daily', 'every 5m', '0 2 * * *')")
+	flag.Var(&args.cronCommands, "cron-command", "Command to execute for cron job")
+	flag.Var(&args.cronNames, "cron-name", "Name for the cron job (optional, auto-generated if not provided)")
+	flag.Var(&args.cronRetries, "cron-retries", "Max retry attempts for cron job (default: 3)")
+	flag.Var(&args.cronTimeouts, "cron-timeout", "Execution timeout for cron job (default: 10m)")
 
 	flag.StringVar(&args.config, "config", "", "Path to YAML configuration file")
 	flag.StringVar(&args.logFormat, "log-format", "text", "Log format: json|text (default: text)")
@@ -74,7 +85,7 @@ Usage: %s [OPTIONS]
 
 A single-binary, configuration-optional process supervisor designed specifically 
 for containerized environments. Run multiple processes with proper signal handling,
-restart policies, health checks, and dependency management.
+restart policies, health checks, dependency management, and cron scheduling.
 
 Examples:
   # Using YAML configuration file
@@ -90,8 +101,16 @@ Examples:
 %s --run "gunicorn app:app" --name app --depends-on cache \
 %s --log-format json --shutdown-timeout 30s
 
+  # With cron jobs (human-readable schedules)
+  %s --run "nginx -g 'daemon off;'" --name web \
+%s --cron-schedule "daily" --cron-command "backup-db.sh" --cron-name backup \
+%s --cron-schedule "every 15m" --cron-command "health-check.sh" --cron-retries 2
+
+  # Traditional cron expressions also supported
+  %s --cron-schedule "0 2 * * *" --cron-command "backup.sh" --cron-timeout 30m
+
 OPTIONS:
-`, os.Args[0], os.Args[0], os.Args[0], strings.Repeat(" ", len(os.Args[0])), os.Args[0], strings.Repeat(" ", len(os.Args[0])), strings.Repeat(" ", len(os.Args[0])), strings.Repeat(" ", len(os.Args[0])))
+`, os.Args[0], os.Args[0], os.Args[0], strings.Repeat(" ", len(os.Args[0])), os.Args[0], strings.Repeat(" ", len(os.Args[0])), strings.Repeat(" ", len(os.Args[0])), strings.Repeat(" ", len(os.Args[0])), os.Args[0], strings.Repeat(" ", len(os.Args[0])), strings.Repeat(" ", len(os.Args[0])), os.Args[0])
 		flag.PrintDefaults()
 	}
 
@@ -131,7 +150,11 @@ OPTIONS:
 		os.Exit(1)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create manager: %v\n", err)
+		os.Exit(1)
+	}
 
 	if err := manager.Initialize(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize manager: %v\n", err)
@@ -140,7 +163,12 @@ OPTIONS:
 
 	manager.HandleSignals()
 
-	fmt.Printf("Wardend starting with %d processes\n", len(config.Processes))
+	fmt.Printf("Wardend starting with %d processes", len(config.Processes))
+	if len(config.CronJobs) > 0 {
+		fmt.Printf(" and %d cron jobs", len(config.CronJobs))
+	}
+	fmt.Println()
+	
 	for _, process := range config.Processes {
 		fmt.Printf("  - %s: %s (restart: %s)\n", process.Name, process.Command, process.RestartPolicy)
 		if len(process.DependsOn) > 0 {
@@ -149,6 +177,11 @@ OPTIONS:
 		if process.HealthCheck != "" {
 			fmt.Printf("    health check: %s (every %s)\n", process.HealthCheck, process.HealthInterval)
 		}
+	}
+	
+	for _, cronJob := range config.CronJobs {
+		fmt.Printf("  - %s: %s (schedule: %s)\n", cronJob.Name, cronJob.Command, cronJob.Schedule)
+		fmt.Printf("    retries: %d, timeout: %s\n", cronJob.Retries, cronJob.Timeout)
 	}
 
 	if err := manager.StartAll(); err != nil {
@@ -163,8 +196,8 @@ OPTIONS:
 func buildConfig(args *CLIArgs) (*Config, error) {
 	config := NewConfig()
 
-	if len(args.runs) == 0 {
-		return nil, fmt.Errorf("at least one --run command is required")
+	if len(args.runs) == 0 && len(args.cronSchedules) == 0 {
+		return nil, fmt.Errorf("at least one --run command or cron job (--cron-schedule + --cron-command) is required")
 	}
 
 	logFormat, err := ParseLogFormat(args.logFormat)
@@ -277,5 +310,62 @@ func buildConfig(args *CLIArgs) (*Config, error) {
 		}
 	}
 
+	// Process cron jobs - validate that schedules and commands are paired
+	if len(args.cronSchedules) != len(args.cronCommands) {
+		return nil, fmt.Errorf("mismatch between --cron-schedule (%d) and --cron-command (%d) flags - they must be paired", 
+			len(args.cronSchedules), len(args.cronCommands))
+	}
+
+	for i := 0; i < len(args.cronSchedules); i++ {
+		schedule := strings.TrimSpace(args.cronSchedules[i])
+		command := strings.TrimSpace(args.cronCommands[i])
+		
+		if schedule == "" {
+			return nil, fmt.Errorf("cron schedule %d cannot be empty", i+1)
+		}
+		if command == "" {
+			return nil, fmt.Errorf("cron command %d cannot be empty", i+1)
+		}
+
+		var name string
+		if i < len(args.cronNames) && strings.TrimSpace(args.cronNames[i]) != "" {
+			name = strings.TrimSpace(args.cronNames[i])
+		} else {
+			name = "" // Let AddCronJob auto-generate the name
+		}
+
+		cronJob := config.AddCronJob(name, schedule, command)
+
+		// Apply cron-specific settings
+		if i < len(args.cronRetries) {
+			retriesStr := strings.TrimSpace(args.cronRetries[i])
+			if retriesStr != "" {
+				retries, err := strconv.Atoi(retriesStr)
+				if err != nil {
+					return nil, fmt.Errorf("invalid cron retries for job %s: %v", cronJob.Name, err)
+				}
+				if retries < 0 {
+					return nil, fmt.Errorf("cron retries must be non-negative for job %s, got: %d", cronJob.Name, retries)
+				}
+				cronJob.Retries = retries
+			}
+		}
+
+		if i < len(args.cronTimeouts) {
+			timeoutStr := strings.TrimSpace(args.cronTimeouts[i])
+			if timeoutStr != "" {
+				timeout, err := time.ParseDuration(timeoutStr)
+				if err != nil {
+					return nil, fmt.Errorf("invalid cron timeout for job %s: %v", cronJob.Name, err)
+				}
+				if timeout <= 0 {
+					return nil, fmt.Errorf("cron timeout must be positive for job %s", cronJob.Name)
+				}
+				cronJob.Timeout = timeout
+			}
+		}
+	}
+
 	return config, nil
 }
+

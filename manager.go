@@ -35,6 +35,7 @@ type Process struct {
 type Manager struct {
 	config        *Config
 	processes     map[string]*Process
+	cronScheduler *CronScheduler
 	logger        *slog.Logger
 	logManager    *LogManager
 	ctx           context.Context
@@ -45,7 +46,7 @@ type Manager struct {
 	httpServer    *HTTPServer
 }
 
-func NewManager(config *Config) *Manager {
+func NewManager(config *Config) (*Manager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -68,12 +69,23 @@ func NewManager(config *Config) *Manager {
 
 	manager.healthChecker = NewHealthChecker(manager)
 
+	// Initialize cron scheduler if cron jobs are configured
+	if len(config.CronJobs) > 0 {
+		cronScheduler, err := NewCronScheduler(config.CronJobs, logger, manager.logManager)
+		if err != nil {
+			logger.Error("failed to create cron scheduler", "error", err)
+			cancel()
+			return nil, fmt.Errorf("failed to create cron scheduler: %v", err)
+		}
+		manager.cronScheduler = cronScheduler
+	}
+
 	// Initialize HTTP server if port is configured
 	if config.HTTPPort > 0 {
 		manager.httpServer = NewHTTPServer(manager, config.HTTPPort)
 	}
 
-	return manager
+	return manager, nil
 }
 
 func getLogLevel(level LogLevel) slog.Level {
@@ -127,6 +139,12 @@ func (m *Manager) StartAll() error {
 
 	// Start health checker after all processes are started
 	m.healthChecker.Start()
+
+	// Start cron scheduler if configured
+	if m.cronScheduler != nil {
+		m.cronScheduler.Start()
+		m.logger.Info("cron scheduler started")
+	}
 
 	// Start HTTP server if configured
 	if m.httpServer != nil {
@@ -314,6 +332,12 @@ func (m *Manager) StopAll() error {
 		if err := m.httpServer.Stop(); err != nil {
 			m.logger.Warn("failed to stop HTTP server", "error", err)
 		}
+	}
+
+	// Stop cron scheduler
+	if m.cronScheduler != nil {
+		m.cronScheduler.Stop()
+		m.logger.Info("cron scheduler stopped")
 	}
 
 	// Stop health checker
@@ -663,4 +687,36 @@ func (m *Manager) GetHealthSummary() map[string]interface{} {
 // IsOverallHealthy returns true if all processes with health checks are healthy
 func (m *Manager) IsOverallHealthy() bool {
 	return m.healthChecker.IsOverallHealthy()
+}
+
+// GetCronJob returns a cron job by name
+func (m *Manager) GetCronJob(name string) *CronJob {
+	if m.cronScheduler == nil {
+		return nil
+	}
+	return m.cronScheduler.GetJob(name)
+}
+
+// GetAllCronJobs returns all cron jobs
+func (m *Manager) GetAllCronJobs() map[string]*CronJob {
+	if m.cronScheduler == nil {
+		return make(map[string]*CronJob)
+	}
+	return m.cronScheduler.GetAllJobs()
+}
+
+// GetCronJobStatus returns the status of a cron job
+func (m *Manager) GetCronJobStatus(name string) map[string]interface{} {
+	if m.cronScheduler == nil {
+		return nil
+	}
+	return m.cronScheduler.GetJobStatus(name)
+}
+
+// GetAllCronJobStatuses returns the status of all cron jobs
+func (m *Manager) GetAllCronJobStatuses() map[string]interface{} {
+	if m.cronScheduler == nil {
+		return make(map[string]interface{})
+	}
+	return m.cronScheduler.GetAllJobStatuses()
 }

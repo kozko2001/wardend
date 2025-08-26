@@ -56,8 +56,34 @@ health_interval: "30s"        # Default health check interval
 # Optional: Enable HTTP monitoring endpoints
 monitor_http_port: 8080       # 0 disables, default is 0
 
+# Scheduled tasks (cron jobs)
+cron_jobs:
+  # Daily backup at 2 AM
+  - name: backup
+    schedule: daily
+    command: "backup-database.sh"
+    retries: 3
+    timeout: "30m"
+    log_output: true
+    
+  # Health check every 5 minutes
+  - name: health-check
+    schedule: "every 5m"
+    command: "curl -f http://localhost/health"
+    retries: 2
+    timeout: "30s"
+    
+  # Weekly cleanup on Sunday at 3 AM  
+  - name: cleanup
+    schedule: "0 3 * * 0"
+    command: "cleanup-logs.sh"
+    retries: 1
+    timeout: "1h"
+
 # HTTP endpoints when enabled:
 # GET /health          - Overall health (200/503)
 # GET /status          - Detailed status
 # GET /processes       - List all processes  
 # GET /processes/{name} - Individual process details
+# GET /crons           - List all cron jobs
+# GET /crons/{name}    - Individual cron job details

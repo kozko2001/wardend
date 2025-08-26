@@ -28,7 +28,10 @@ func TestStructuredLogging_ProcessLifecycle(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	manager.logger = logger // Override with our test logger
 
 	if err := manager.Initialize(); err != nil {
@@ -120,7 +123,10 @@ func TestStructuredLogging_RestartAttempts(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	manager.logger = logger // Override with our test logger
 
 	if err := manager.Initialize(); err != nil {
@@ -204,7 +210,10 @@ func TestStructuredLogging_HealthChecks(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	manager.logger = logger // Override with our test logger
 
 	if err := manager.Initialize(); err != nil {
@@ -282,7 +291,10 @@ func TestStructuredLogging_DependencyWaiting(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	manager.logger = logger // Override with our test logger
 
 	if err := manager.Initialize(); err != nil {
@@ -305,7 +317,7 @@ func TestStructuredLogging_DependencyWaiting(t *testing.T) {
 	}
 
 	// Now call waitForDependencies - should succeed quickly since dependency is running
-	err := manager.waitForDependencies("dependent")
+	err = manager.waitForDependencies("dependent")
 
 	// Parse the log output
 	logOutput := buf.String()

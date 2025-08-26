@@ -1,0 +1,25 @@
+Wardend starting with 1 processes and 1 cron jobs
+  - test-process: sleep 120 (restart: always)
+  - test-backup: echo 'Backup completed at $(date)' (schedule: every 10s)
+    retries: 3, timeout: 5m0s
+{"time":"2025-08-26T12:03:47.299966309+02:00","level":"INFO","msg":"starting processes","order":["test-process"]}
+{"time":"2025-08-26T12:03:47.300162215+02:00","level":"INFO","msg":"starting process","process":"test-process","command":"sleep 120","restart_policy":"always","startup_attempts":0,"runtime_restarts":0}
+{"time":"2025-08-26T12:03:47.300822359+02:00","level":"INFO","msg":"process started","process":"test-process","command":"sleep 120","restart_policy":"always","startup_attempts":0,"runtime_restarts":0,"pid":1035181,"state":"running"}
+{"time":"2025-08-26T12:03:47.300862727+02:00","level":"INFO","msg":"starting health checker"}
+{"time":"2025-08-26T12:03:47.300869851+02:00","level":"INFO","msg":"starting cron scheduler","job_count":1}
+{"time":"2025-08-26T12:03:47.300878162+02:00","level":"INFO","msg":"cron scheduler started"}
+{"time":"2025-08-26T12:03:47.300886473+02:00","level":"INFO","msg":"starting HTTP health check server","component":"http_server","addr":":8083"}
+All processes started successfully
+{"time":"2025-08-26T12:04:47.310695694+02:00","level":"INFO","msg":"starting cron job execution","cron_job":"test-backup","command":"echo 'Backup completed at $(date)'","run_count":1}
+[2025-08-26T12:04:47.317Z] [test-backup] [INFO] Backup completed at $(date)
+{"time":"2025-08-26T12:04:47.317804124+02:00","level":"INFO","msg":"cron job completed successfully","cron_job":"test-backup","command":"echo 'Backup completed at $(date)'","run_count":1,"duration":7136925,"attempt":1}
+{"time":"2025-08-26T12:05:11.537739469+02:00","level":"INFO","msg":"received shutdown signal","signal":"terminated"}
+{"time":"2025-08-26T12:05:11.537890258+02:00","level":"INFO","msg":"initiating graceful shutdown"}
+{"time":"2025-08-26T12:05:11.537910442+02:00","level":"INFO","msg":"stopping HTTP health check server","component":"http_server"}
+{"time":"2025-08-26T12:05:11.538083789+02:00","level":"INFO","msg":"stopping cron scheduler"}
+{"time":"2025-08-26T12:05:11.538111097+02:00","level":"INFO","msg":"cron scheduler stopped"}
+{"time":"2025-08-26T12:05:11.538126533+02:00","level":"INFO","msg":"stopping health checker"}
+{"time":"2025-08-26T12:05:11.538147904+02:00","level":"INFO","msg":"stopping all processes","order":["test-process"]}
+{"time":"2025-08-26T12:05:11.538209644+02:00","level":"INFO","msg":"stopping process","process":"test-process","state":"running"}
+{"time":"2025-08-26T12:05:21.56384874+02:00","level":"WARN","msg":"process did not stop gracefully, sending SIGKILL","process":"test-process","state":"running","timeout":10000000000,"signal":"SIGKILL"}
+{"time":"2025-08-26T12:05:21.563947287+02:00","level":"ERROR","msg":"failed to kill process","process":"test-process","state":"running","error":"os: process already finished","signal":"SIGKILL"}

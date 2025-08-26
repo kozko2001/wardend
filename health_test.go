@@ -17,7 +17,10 @@ func TestHealthChecker_BasicFunctionality(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -61,7 +64,10 @@ func TestHealthChecker_FailedHealthCheck(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -101,7 +107,10 @@ func TestHealthChecker_OverallHealth(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -150,7 +159,10 @@ func TestHealthChecker_AllHealthy(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -180,7 +192,10 @@ func TestHealthChecker_UnknownProcess(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -209,7 +224,10 @@ func TestHealthChecker_GetAllHealthStatuses(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}

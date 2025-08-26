@@ -63,6 +63,8 @@ func NewHTTPServer(manager *Manager, port int) *HTTPServer {
 	mux.HandleFunc("/status", httpServer.handleStatus)
 	mux.HandleFunc("/processes", httpServer.handleProcesses)
 	mux.HandleFunc("/processes/", httpServer.handleProcess)
+	mux.HandleFunc("/crons", httpServer.handleCronJobs)
+	mux.HandleFunc("/crons/", httpServer.handleCronJob)
 
 	return httpServer
 }
@@ -339,5 +341,130 @@ func (hs *HTTPServer) handleProcess(w http.ResponseWriter, r *http.Request) {
 	hs.logger.Debug("process details request served",
 		"process", processName,
 		"state", state,
+		"client_ip", r.RemoteAddr)
+}
+
+func (hs *HTTPServer) handleCronJobs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	hs.mu.RLock()
+	defer hs.mu.RUnlock()
+
+	cronJobs := make([]map[string]interface{}, 0, len(hs.manager.config.CronJobs))
+
+	for _, cronConfig := range hs.manager.config.CronJobs {
+		cronInfo := map[string]interface{}{
+			"name":       cronConfig.Name,
+			"schedule":   cronConfig.Schedule,
+			"command":    cronConfig.Command,
+			"retries":    cronConfig.Retries,
+			"timeout":    cronConfig.Timeout.String(),
+			"log_output": cronConfig.LogOutput,
+		}
+
+		// Add runtime status if available
+		if status := hs.manager.GetCronJobStatus(cronConfig.Name); status != nil {
+			cronInfo["state"] = status["state"]
+			cronInfo["next_run"] = status["next_run"]
+			cronInfo["run_count"] = status["run_count"]
+			cronInfo["success_count"] = status["success_count"]
+			cronInfo["failure_count"] = status["failure_count"]
+			if lastExecution, ok := status["last_execution"]; ok {
+				cronInfo["last_execution"] = lastExecution
+			}
+		}
+
+		cronJobs = append(cronJobs, cronInfo)
+	}
+
+	response := map[string]interface{}{
+		"cron_jobs": cronJobs,
+		"count":     len(cronJobs),
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		hs.logger.Error("failed to encode cron jobs response", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	hs.logger.Debug("cron jobs list request served",
+		"cron_job_count", len(cronJobs),
+		"client_ip", r.RemoteAddr)
+}
+
+func (hs *HTTPServer) handleCronJob(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract cron job name from path
+	path := r.URL.Path
+	if len(path) <= len("/crons/") {
+		http.Error(w, "Cron job name required", http.StatusBadRequest)
+		return
+	}
+
+	cronJobName := path[len("/crons/"):]
+
+	hs.mu.RLock()
+	defer hs.mu.RUnlock()
+
+	// Find cron job config
+	var cronConfig *CronConfig
+	for _, config := range hs.manager.config.CronJobs {
+		if config.Name == cronJobName {
+			cronConfig = &config
+			break
+		}
+	}
+
+	if cronConfig == nil {
+		http.Error(w, "Cron job not found", http.StatusNotFound)
+		return
+	}
+
+	// Get current status
+	status := hs.manager.GetCronJobStatus(cronJobName)
+	if status == nil {
+		http.Error(w, "Cron job status not available", http.StatusNotFound)
+		return
+	}
+
+	response := map[string]interface{}{
+		"name":       cronConfig.Name,
+		"schedule":   cronConfig.Schedule,
+		"command":    cronConfig.Command,
+		"retries":    cronConfig.Retries,
+		"timeout":    cronConfig.Timeout.String(),
+		"log_output": cronConfig.LogOutput,
+		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Add all status information
+	for key, value := range status {
+		response[key] = value
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		hs.logger.Error("failed to encode cron job response", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	hs.logger.Debug("cron job details request served",
+		"cron_job", cronJobName,
+		"state", status["state"],
 		"client_ip", r.RemoteAddr)
 }

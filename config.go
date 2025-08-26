@@ -45,8 +45,18 @@ type ProcessConfig struct {
 	RestartDelay   time.Duration
 }
 
+type CronConfig struct {
+	Name       string
+	Schedule   string
+	Command    string
+	Retries    int
+	Timeout    time.Duration
+	LogOutput  bool
+}
+
 type Config struct {
 	Processes       []ProcessConfig
+	CronJobs        []CronConfig
 	LogFormat       LogFormat
 	LogLevel        LogLevel
 	LogDir          string
@@ -62,6 +72,7 @@ type Config struct {
 func NewConfig() *Config {
 	return &Config{
 		Processes:       make([]ProcessConfig, 0),
+		CronJobs:        make([]CronConfig, 0),
 		LogFormat:       LogFormatText,
 		LogLevel:        LogLevelInfo,
 		ShutdownTimeout: 10 * time.Second,
@@ -90,9 +101,26 @@ func (c *Config) AddProcess(name, command string) *ProcessConfig {
 	return &c.Processes[len(c.Processes)-1]
 }
 
+func (c *Config) AddCronJob(name, schedule, command string) *CronConfig {
+	if name == "" {
+		name = fmt.Sprintf("cron-%d", len(c.CronJobs)+1)
+	}
+	
+	cronJob := CronConfig{
+		Name:      name,
+		Schedule:  schedule,
+		Command:   command,
+		Retries:   3,           // default retries
+		Timeout:   10 * time.Minute, // default timeout
+		LogOutput: true,        // default log output
+	}
+	c.CronJobs = append(c.CronJobs, cronJob)
+	return &c.CronJobs[len(c.CronJobs)-1]
+}
+
 func (c *Config) Validate() error {
-	if len(c.Processes) == 0 {
-		return errors.New("no processes configured")
+	if len(c.Processes) == 0 && len(c.CronJobs) == 0 {
+		return errors.New("no processes or cron jobs configured")
 	}
 
 	processNames := make(map[string]bool)
@@ -116,6 +144,34 @@ func (c *Config) Validate() error {
 			if !processNames[dep] && !hasDependency(c.Processes, dep) {
 				return fmt.Errorf("process '%s' depends on undefined process '%s'", process.Name, dep)
 			}
+		}
+	}
+
+	// Validate cron jobs
+	cronNames := make(map[string]bool)
+	for _, cronJob := range c.CronJobs {
+		if cronJob.Name == "" {
+			return errors.New("cron job name cannot be empty")
+		}
+		if cronJob.Command == "" {
+			return fmt.Errorf("command cannot be empty for cron job '%s'", cronJob.Name)
+		}
+		if cronNames[cronJob.Name] {
+			return fmt.Errorf("duplicate cron job name: %s", cronJob.Name)
+		}
+		if processNames[cronJob.Name] {
+			return fmt.Errorf("cron job name '%s' conflicts with process name", cronJob.Name)
+		}
+		cronNames[cronJob.Name] = true
+
+		if cronJob.Schedule == "" {
+			return fmt.Errorf("schedule cannot be empty for cron job '%s'", cronJob.Name)
+		}
+		if cronJob.Retries < 0 {
+			return fmt.Errorf("retries must be non-negative for cron job '%s', got: %d", cronJob.Name, cronJob.Retries)
+		}
+		if cronJob.Timeout <= 0 {
+			return fmt.Errorf("timeout must be positive for cron job '%s'", cronJob.Name)
 		}
 	}
 

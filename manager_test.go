@@ -16,7 +16,10 @@ func TestManager_Initialize(t *testing.T) {
 		LogLevel:  LogLevelInfo,
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
@@ -45,7 +48,10 @@ func TestManager_StartStopProcess(t *testing.T) {
 		ShutdownTimeout: 2 * time.Second,
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
@@ -100,7 +106,10 @@ func TestManager_DependencyResolution(t *testing.T) {
 		LogLevel:  LogLevelInfo,
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 
 	startOrder, err := manager.getStartOrder()
 	if err != nil {
@@ -149,9 +158,12 @@ func TestManager_CircularDependencyDetection(t *testing.T) {
 		LogLevel:  LogLevelInfo,
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 
-	_, err := manager.getStartOrder()
+	_, err = manager.getStartOrder()
 	if err == nil {
 		t.Error("Expected error for circular dependency, but got none")
 	}
@@ -175,7 +187,10 @@ func TestManager_RestartProcess(t *testing.T) {
 		RestartDelay:    100 * time.Millisecond,
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
@@ -206,7 +221,10 @@ func TestManager_AllProcessStates(t *testing.T) {
 		LogLevel:  LogLevelInfo,
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
@@ -237,7 +255,10 @@ func TestManager_StartAll_WithDependencies(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
@@ -290,7 +311,10 @@ func TestManager_ProcessMonitoring_RestartOnFailure(t *testing.T) {
 		ShutdownTimeout: 2 * time.Second,
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
@@ -334,7 +358,10 @@ func TestManager_ProcessMonitoring_NoRestartOnNever(t *testing.T) {
 		ShutdownTimeout: 2 * time.Second,
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Initialize failed: %v", err)
@@ -384,7 +411,10 @@ func TestManager_TwoPhaseRestart(t *testing.T) {
 			LogLevel:  LogLevelInfo,
 		}
 
-		manager := NewManager(config)
+		manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 		if err := manager.Initialize(); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
@@ -436,7 +466,10 @@ func TestManager_TwoPhaseRestart(t *testing.T) {
 			LogLevel:  LogLevelInfo,
 		}
 
-		manager := NewManager(config)
+		manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 		if err := manager.Initialize(); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
@@ -484,7 +517,10 @@ func TestManager_TwoPhaseRestart(t *testing.T) {
 			ShutdownTimeout: 2 * time.Second,
 		}
 
-		manager := NewManager(config)
+		manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 		if err := manager.Initialize(); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}

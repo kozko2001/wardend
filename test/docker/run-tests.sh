@@ -80,4 +80,104 @@ docker rm $CONTAINER_ID
 
 echo "Test 3 completed!"
 
+# Test 4: Cron functionality test
+echo "Test 4: Cron functionality test..."
+CONTAINER_ID=$(docker run -d -p 9092:8090 wardend-test /usr/local/bin/wardend \
+    --config /app/test/cron-test.yml)
+
+# Wait for startup and initial cron executions
+echo "Waiting for cron jobs to execute..."
+sleep 25
+
+# Test cron HTTP endpoints
+echo "Testing cron HTTP endpoints..."
+echo "1. Testing /crons endpoint..."
+if curl -f -s http://localhost:9092/crons > /dev/null; then
+    echo "   /crons endpoint test passed!"
+    curl -s http://localhost:9092/crons | jq '.count' 2>/dev/null || echo "   Response received (jq not available)"
+else
+    echo "   /crons endpoint test failed!"
+fi
+
+echo "2. Testing /crons/quick-test endpoint..."
+if curl -f -s http://localhost:9092/crons/quick-test > /dev/null; then
+    echo "   /crons/quick-test endpoint test passed!"
+    curl -s http://localhost:9092/crons/quick-test | jq '.run_count' 2>/dev/null || echo "   Response received (jq not available)"
+else
+    echo "   /crons/quick-test endpoint test failed!"
+fi
+
+# Check container logs for cron execution evidence
+echo "Checking container logs for cron execution evidence..."
+LOGS=$(docker logs $CONTAINER_ID 2>&1)
+if echo "$LOGS" | grep -q "starting cron scheduler"; then
+    echo "   Cron scheduler started successfully!"
+else
+    echo "   WARNING: Cron scheduler startup not found in logs"
+fi
+
+if echo "$LOGS" | grep -q "starting cron job execution"; then
+    echo "   Cron job execution detected!"
+else
+    echo "   WARNING: No cron job execution found in logs (may need longer wait)"
+fi
+
+if echo "$LOGS" | grep -q "Cron test at"; then
+    echo "   Cron job output detected in logs!"
+else
+    echo "   WARNING: Expected cron job output not found"
+fi
+
+echo "Container logs (last 20 lines):"
+docker logs $CONTAINER_ID 2>&1 | tail -20
+
+# Cleanup
+docker stop $CONTAINER_ID >/dev/null 2>&1 || true
+docker rm $CONTAINER_ID
+
+echo "Test 4 completed!"
+
+# Test 5: CLI cron flags test
+echo "Test 5: CLI cron flags test..."
+CONTAINER_ID=$(docker run -d -p 9093:8091 wardend-test /usr/local/bin/wardend \
+    --cron-schedule "every 3s" \
+    --cron-command "echo 'CLI cron test at' \$(date)" \
+    --cron-name "cli-test" \
+    --cron-retries "2" \
+    --cron-timeout "5s" \
+    --monitor-http-port "8091")
+
+# Wait for execution
+sleep 10
+
+# Test that the cron job was configured correctly via CLI
+echo "Testing CLI-configured cron job..."
+if curl -f -s http://localhost:9093/crons/cli-test > /dev/null; then
+    echo "   CLI cron job configuration test passed!"
+    CLI_STATUS=$(curl -s http://localhost:9093/crons/cli-test 2>/dev/null)
+    if echo "$CLI_STATUS" | grep -q '"schedule":"every 3s"'; then
+        echo "   Schedule configured correctly!"
+    fi
+    if echo "$CLI_STATUS" | grep -q '"retries":2'; then
+        echo "   Retries configured correctly!"
+    fi
+else
+    echo "   CLI cron job test failed!"
+fi
+
+# Check for execution in logs
+echo "Checking CLI cron execution..."
+CLI_LOGS=$(docker logs $CONTAINER_ID 2>&1)
+if echo "$CLI_LOGS" | grep -q "CLI cron test at"; then
+    echo "   CLI cron job executed successfully!"
+else
+    echo "   WARNING: CLI cron job output not found"
+fi
+
+# Cleanup
+docker stop $CONTAINER_ID >/dev/null 2>&1 || true
+docker rm $CONTAINER_ID
+
+echo "Test 5 completed!"
+
 echo "All Docker integration tests completed successfully!"

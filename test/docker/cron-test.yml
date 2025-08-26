@@ -1,0 +1,36 @@
+# Test configuration for cron functionality
+processes:
+  # Simple process to keep container alive
+  - name: keeper
+    command: "sleep 300"
+    restart_policy: never
+
+cron_jobs:
+  # Quick test job that runs every 5 seconds
+  - name: quick-test
+    schedule: "every 5s"
+    command: "echo 'Cron test at' $(date)"
+    retries: 1
+    timeout: "10s"
+    log_output: true
+    
+  # Test job with custom schedule
+  - name: custom-schedule
+    schedule: "every 10s"
+    command: "echo 'Custom schedule test' > /tmp/custom-test.log"
+    retries: 2
+    timeout: "5s"
+    log_output: true
+    
+  # Test job that fails (for retry testing)
+  - name: retry-test
+    schedule: "every 15s" 
+    command: "exit 1"
+    retries: 3
+    timeout: "5s"
+    log_output: false
+
+# Enable HTTP monitoring for testing endpoints
+monitor_http_port: 8090
+log_format: json
+log_level: info

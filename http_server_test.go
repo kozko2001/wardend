@@ -20,7 +20,10 @@ func TestHTTPServer_HealthEndpoint(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -75,7 +78,10 @@ func TestHTTPServer_HealthEndpoint_Unhealthy(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -118,7 +124,10 @@ func TestHTTPServer_StatusEndpoint(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -175,7 +184,10 @@ func TestHTTPServer_ProcessesEndpoint(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -223,7 +235,10 @@ func TestHTTPServer_ProcessEndpoint(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -271,7 +286,10 @@ func TestHTTPServer_ProcessEndpoint_NotFound(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -298,7 +316,10 @@ func TestHTTPServer_MethodNotAllowed(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -328,7 +349,10 @@ func TestHTTPServer_Integration(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -340,7 +364,10 @@ func TestHTTPServer_Integration(t *testing.T) {
 
 	// Test with a valid port
 	config.HTTPPort = 8081
-	manager2 := NewManager(config)
+	manager2, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create second manager: %v", err)
+	}
 	if err := manager2.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -359,7 +386,10 @@ func TestNewHTTPServer(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
@@ -391,7 +421,10 @@ func TestHTTPServer_StartStop(t *testing.T) {
 		t.Fatalf("Config validation failed: %v", err)
 	}
 
-	manager := NewManager(config)
+	manager, err := NewManager(config)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
 	if err := manager.Initialize(); err != nil {
 		t.Fatalf("Manager initialization failed: %v", err)
 	}
